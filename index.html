@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-title" content="作息時鐘">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 
-<title>寶寶作息時鐘 - 靜態分鐘環 (V15 - 修正色塊)</title>
+<title>寶寶作息時鐘 - 靜態分鐘環 (V17 - 設定連動)</title>
 <style>
   /* 全域設定 */
   body, html {
@@ -37,8 +37,7 @@
     margin-bottom: 20px; 
     transition: background 0.5s ease-in-out; 
     transform-origin: center center;
-    /* 🚨 V15: 確保背景色塊能顯示出來，如果沒有色塊時使用淺色背景 */
-    background: #fff; 
+    background: #f9f9f9; /* 淺灰色作為底色 */
   }
 
   /* 時鐘指針與中心點 */
@@ -120,7 +119,8 @@
   #tasksTable th, #tasksTable td { padding: 10px 5px; text-align: center; border-bottom: 1px solid #eee; }
   #tasksTable input[type="text"] { padding: 5px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box; }
   #tasksTable input[type="color"] { width: 30px; height: 30px; padding: 0; border: none; border-radius: 5px; vertical-align: middle; }
-  #tasksTable select:disabled { background-color: #f0f0f0; border: 1px solid #ccc; color: #888; } 
+  /* 鎖定的欄位使用不同顏色 */
+  #tasksTable select[disabled] { background-color: #e0e0e0; border: 1px solid #999; color: #555; } 
   .time-select-group { display: flex; gap: 3px; justify-content: center; }
   .time-select-group select { width: 45%; padding: 5px; border: 1px solid #ccc; border-radius: 5px; }
   .preset-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
@@ -165,7 +165,7 @@
         </div>
 
         <h3>任務列表設定 (最多 10 組)</h3>
-        <p style="color: red; font-weight: bold;">⚠️ 第 2 項之後的任務，開始時間會自動鎖定為前一項的結束時間。</p>
+        <p style="color: red; font-weight: bold;">✅ 第 2 項之後的任務，開始時間會鎖定並連動前一項的結束時間。</p>
         <table id="tasksTable">
             <thead>
                 <tr>
@@ -231,6 +231,7 @@ const DEFAULT_CLOUD_DATA = {
 
 // --- 時間處理與工具函式 ---
 function minutesToHHMM(totalMinutes) {
+    // 確保處理 1440
     if (totalMinutes === 1440) return '24:00';
     totalMinutes = totalMinutes % 1440;
     const hour = Math.floor(totalMinutes / 60);
@@ -243,12 +244,21 @@ function minutesToTime(totalMinutes) {
         totalMinutes = 0; 
     }
     
+    // 處理 1440 (24:00)
     if (totalMinutes === 1440) return { hour: 24, minute: 0 }; 
     const hour = Math.floor(totalMinutes / 60) % 24;
     const minute = totalMinutes % 60;
     return { hour, minute };
 }
 
+/**
+ * 產生小時/分鐘下拉選單
+ * @param {number} dataIndex 任務索引
+ * @param {string} fieldPrefix 'start' or 'end'
+ * @param {number} totalMinutes 總分鐘數
+ * @param {boolean} isEnd 是否為結束時間
+ * @param {boolean} isDisabled 是否禁用
+ */
 function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd, isDisabled = false) {
     if (typeof totalMinutes !== 'number' || isNaN(totalMinutes) || totalMinutes < 0) {
         totalMinutes = 0; 
@@ -258,6 +268,8 @@ function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd, isDi
     let hourOptions = '';
     const maxHour = isEnd ? 24 : 23; 
     for (let h = 0; h <= maxHour; h++) {
+        // 確保 24:00 在結束時間選項中
+        if (h === 24 && !isEnd) continue;
         hourOptions += `<option value="${h}" ${h === hour ? 'selected' : ''}>${h.toString().padStart(2, '0')}</option>`;
     }
 
@@ -266,12 +278,34 @@ function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd, isDi
         minuteOptions += `<option value="${m}" ${m === minute ? 'selected' : ''}>${m.toString().padStart(2, '0')}</option>`;
     }
     
-    const disabledAttr = isDisabled && fieldPrefix === 'start' ? 'disabled' : '';
+    const disabledAttr = isDisabled ? 'disabled' : '';
 
     return `<div class="time-select-group">
         <select ${disabledAttr} data-index="${dataIndex}" data-field="${fieldPrefix}Hour">${hourOptions}</select>
         <select ${disabledAttr} data-index="${dataIndex}" data-field="${fieldPrefix}Minute">${minuteOptions}</select>
     </div>`;
+}
+
+/**
+ * 處理跨日問題：將一個任務時間區間 (start, end) 分割成一個或兩個非跨越 0 點 (0/1440) 的有效段。
+ * @param {number} start 
+ * @param {number} end 
+ * @returns {Array<Object>} {start, end} 區間陣列
+ */
+function getTaskSegments(start, end) {
+    let segments = [];
+    if (start === end) {
+        if (start === 0 && end === FULL_DAY_MINUTES) {
+            segments.push({ start: 0, end: FULL_DAY_MINUTES });
+        }
+    } else if (start > end) {
+        // 跨日任務: (23:00 -> 07:00) 變成 (23:00 -> 24:00) 和 (00:00 -> 07:00)
+        segments.push({ start: start, end: FULL_DAY_MINUTES });
+        segments.push({ start: 0, end: end });
+    } else {
+        segments.push({ start: start, end: end });
+    }
+    return segments.filter(s => s.end > s.start);
 }
 
 
@@ -309,6 +343,7 @@ async function loadData() {
 
 async function saveCloudData(tasksToSave, presetsToSave) {
     const finalTasks = JSON.parse(JSON.stringify(tasksToSave));
+    // 儲存前再次強制連動
     for (let i = 1; i < finalTasks.length; i++) {
         if (finalTasks[i-1].enabled) {
             finalTasks[i].start = finalTasks[i-1].end;
@@ -342,7 +377,7 @@ function updateSyncUrlDisplay() {
 }
 
 
-// --- 時鐘渲染邏輯 (V15 修正: 色塊繪製邏輯) ---
+// --- 時鐘渲染邏輯 (V16/V17 保持) ---
 const clockElement = document.getElementById('clock');
 const hourRangeIndicator = document.getElementById('hour-range-indicator'); 
 const labelsContainer = document.getElementById('taskLabelsContainer'); 
@@ -361,10 +396,8 @@ function renderClock() {
     const degreePerMinute = ZOOM_DEGREE; 
     const zoomEndMinutes = zoomStartMinutes + 60;
     
-    // 🚨 V15: 設置一個底色，確保圓盤不會完全空白
-    let defaultColor = '#f9f9f9'; // 淺灰色作為背景
-    conicGradientStops.push(`${defaultColor} 0deg 360deg`);
-
+    // 設置一個底色 (從 12 點鐘方向 0 度開始到 360 度)
+    conicGradientStops.push(`#f9f9f9 0deg 360deg`);
 
     hourRangeIndicator.textContent = `${minutesToHHMM(zoomStartMinutes)} - ${minutesToHHMM(zoomEndMinutes)}`;
 
@@ -377,9 +410,7 @@ function renderClock() {
        
         const radius = R_TASK_LABEL_OUTER; 
         
-        // 角度計算：從 12 點鐘 (0 deg) 開始順時針，需要轉換為標準笛卡爾坐標 (0 deg 在 3 點鐘)
-        // 0 度 (12 點) -> 90 度 (3 點) -> 180 度 (6 點) -> 270 度 (9 點)
-        // 轉換公式: 笛卡爾角度 = 圓盤角度 - 90
+        // 角度轉換: 圓盤角度 (0 deg at 12) -> 笛卡爾角度 (90 deg at 12)
         let angleRad = (middleAngleDeg - 90) * Math.PI / 180;
         
         div.style.left = `${cx + radius * Math.cos(angleRad)}px`;
@@ -390,17 +421,8 @@ function renderClock() {
     
     // 渲染迴圈
     enabledTasks.forEach(task => {
-        let segments = [];
-        let originalStart = task.start;
-        let originalEnd = task.end;
         
-        // 處理跨日任務 (例如 23:00 - 07:00)
-        if (originalStart >= originalEnd) {
-            segments.push({ start: originalStart, end: FULL_DAY_MINUTES });
-            segments.push({ start: 0, end: originalEnd === 0 ? FULL_DAY_MINUTES : originalEnd });
-        } else {
-            segments.push({ start: originalStart, end: originalEnd });
-        }
+        const segments = getTaskSegments(task.start, task.end);
 
         segments.forEach(segment => {
             let start = segment.start; 
@@ -412,30 +434,36 @@ function renderClock() {
             
             if (clippedEnd <= clippedStart) return; 
             
-            // 計算在當前 60 分鐘區間內的相對起始和結束分鐘數
+            // 計算在當前 60 分鐘區間內的相對起始和結束分鐘數 (0-60)
             let relativeStartMinutes = clippedStart - zoomStartMinutes; 
             let relativeEndMinutes = clippedEnd - zoomStartMinutes;     
             let durationMinutes = relativeEndMinutes - relativeStartMinutes;
 
-            // 角度計算：從 12 點鐘方向 (0 分鐘 = 0 度) 開始順時針計算
+            // 角度計算
             let gradientStartDeg = relativeStartMinutes * degreePerMinute;
-            let gradientStopDeg = relativeEndMinutes * degreePerMinute; // 這裡直接使用相對結束分鐘計算角度
+            let gradientStopDeg = relativeEndMinutes * degreePerMinute; 
             
-            // 🚨 V15 修正核心：將色塊插入到 conicGradientStops，確保它覆蓋底色
-            conicGradientStops.push(`${task.color} ${gradientStartDeg}deg ${gradientStopDeg}deg`);
-            
-            let middleMinutes = relativeStartMinutes + durationMinutes / 2;
-            let middleAngleDeg = middleMinutes * degreePerMinute;
-            
-            addLabel(task, middleAngleDeg, durationMinutes);
+            // 確保角度在 0 到 360 度之間
+            gradientStartDeg = Math.max(0, gradientStartDeg);
+            gradientStopDeg = Math.min(360, gradientStopDeg);
 
+            if (gradientStopDeg > gradientStartDeg) {
+                // 將色塊插入到 conicGradientStops
+                conicGradientStops.push(`${task.color} ${gradientStartDeg}deg ${gradientStopDeg}deg`);
+                
+                let middleMinutes = relativeStartMinutes + durationMinutes / 2;
+                let middleAngleDeg = middleMinutes * degreePerMinute;
+                
+                addLabel(task, middleAngleDeg, durationMinutes);
+            }
         });
     });
 
     // 設置圓環背景
-    // 🚨 V15 修正: 確保所有 stops 都能正確解析
-    clockElement.style.background = `conic-gradient(from 0deg, ${conicGradientStops.reverse().join(', ')})`; // reverse 讓底色最後應用
-
+    const finalGradientStops = conicGradientStops.filter((_, i) => i > 0).join(', '); 
+    clockElement.style.background = `conic-gradient(from 0deg, ${conicGradientStops[0]}, ${finalGradientStops})`;
+    
+    
     // 繪製刻度與數字 (1H Zoom Mode)
     for (let i = 0; i < 60; i += 5) {
         const isMajor = i % 15 === 0;
@@ -452,7 +480,7 @@ function renderClock() {
             num.className = 'clock-label zoom-minute-label';
             num.textContent = `${labelText}`; 
             
-            // 數字標籤定位 (從 12 點鐘方向 90 度開始順時針旋轉)
+            // 數字標籤定位
             const angleRad = (deg - 90) * Math.PI / 180;
             
             num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angleRad)}px`;
@@ -499,17 +527,51 @@ function updateTime() {
 }
 
 
-// --- 設定介面渲染與互動 (不變) ---
+// --- 設定介面渲染與互動 (V17 修正) ---
 
 const tasksBody = document.getElementById('tasksBody');
 const modal = document.getElementById('settingsModal');
 const presetSelector = document.getElementById('presetSelector');
 
+
+/**
+ * 根據前一項任務的結束時間更新當前任務的開始時間選擇器
+ * @param {number} taskIndex 當前任務索引
+ * @param {number} newStartMinutes 新的開始總分鐘數
+ */
+function updateStartTimeSelector(taskIndex, newStartMinutes) {
+    const row = tasksBody.querySelector(`tr:nth-child(${taskIndex + 1})`);
+    if (!row) return;
+
+    const startHourSelect = row.querySelector('[data-field="startHour"]');
+    const startMinuteSelect = row.querySelector('[data-field="startMinute"]');
+
+    if (startHourSelect && startMinuteSelect && startHourSelect.disabled) {
+        const { hour, minute } = minutesToTime(newStartMinutes);
+
+        // 更新小時選單
+        startHourSelect.value = hour;
+        
+        // 更新分鐘選單 (強制 5 分鐘間隔)
+        const roundedMinute = Math.round(minute / 5) * 5;
+        // 確保選單中已經有這個值
+        if (startMinuteSelect.querySelector(`option[value="${roundedMinute}"]`)) {
+             startMinuteSelect.value = roundedMinute;
+        } else {
+             // 處理例如 24:00 (1440) 這種特殊情況, 它的分鐘是 0
+             startMinuteSelect.value = 0; 
+        }
+    }
+}
+
+
 function renderSettings() {
     tasksBody.innerHTML = '';
     
+    // V17: 建立一個連動後的任務副本，用於渲染
     const tasksToRender = JSON.parse(JSON.stringify(currentTasks));
     for (let i = 1; i < tasksToRender.length; i++) {
+        // 只有前一個任務啟用時才連動
         if (tasksToRender[i-1].enabled) {
              tasksToRender[i].start = tasksToRender[i-1].end;
         }
@@ -519,12 +581,16 @@ function renderSettings() {
     for (let i = 0; i < MAX_TASKS; i++) {
         const task = tasksToRender[i] || { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false };
         
+        // V17: 判斷是否鎖定開始時間：
+        // 1. 不是第一個任務 (i > 0)
+        // 2. 且前一個任務是啟用的 (tasksToRender[i-1].enabled)
         const isStartLocked = i > 0 && tasksToRender[i-1] && tasksToRender[i-1].enabled; 
 
+        // 鎖定的話，使用連動後的 task.start 渲染
         const startTimeSelectors = generateTimeSelectors(i, 'start', task.start, false, isStartLocked);
         const endTimeSelectors = generateTimeSelectors(i, 'end', task.end, true, false); 
 
-        let row = `<tr>
+        let row = `<tr data-index="${i}">
             <td>${i + 1}</td>
             <td><input type="checkbox" data-index="${i}" data-field="enabled" ${task.enabled ? 'checked' : ''}></td>
             <td><input type="text" data-index="${i}" data-field="name" value="${task.name || ''}" placeholder="例如: 吃早餐"></td>
@@ -535,9 +601,69 @@ function renderSettings() {
         </tr>`;
         tasksBody.innerHTML += row;
     }
+    
+    // V17: 在渲染完成後，為所有 end 時間選擇器添加變動事件監聽器
+    addSettingsEventListeners();
+
     renderPresetSelector();
     updateSyncUrlDisplay(); 
 }
+
+function addSettingsEventListeners() {
+    tasksBody.querySelectorAll('select[data-field$="Hour"], select[data-field$="Minute"], input[data-field="enabled"]').forEach(input => {
+        input.addEventListener('change', handleSettingChange);
+    });
+}
+
+function handleSettingChange(event) {
+    const target = event.target;
+    const index = parseInt(target.getAttribute('data-index'), 10);
+    const field = target.getAttribute('data-field');
+    const tasks = Array.from(tasksBody.querySelectorAll('tr')).map(row => {
+        const hS = row.querySelector('[data-field="startHour"]').value;
+        const mS = row.querySelector('[data-field="startMinute"]').value;
+        const hE = row.querySelector('[data-field="endHour"]').value;
+        const mE = row.querySelector('[data-field="endMinute"]').value;
+        
+        const enabled = row.querySelector('[data-field="enabled"]').checked;
+        
+        let startM = (parseInt(hS, 10) * 60) + parseInt(mS, 10);
+        let endM = (parseInt(hE, 10) * 60) + parseInt(mE, 10);
+        
+        if (parseInt(hE, 10) === 24) endM = FULL_DAY_MINUTES;
+
+        return { start: startM, end: endM, enabled: enabled };
+    });
+
+
+    // 如果是更改「啟用」狀態
+    if (field === 'enabled') {
+        // 重新渲染設定介面以鎖定/解鎖下一項的開始時間
+        renderSettings();
+        return; 
+    }
+
+    // 只有更改「結束時間」時才需要連動下一項
+    if (field === 'endHour' || field === 'endMinute') {
+        const nextTaskIndex = index + 1;
+        if (nextTaskIndex < MAX_TASKS) {
+             const nextTaskRow = tasksBody.querySelector(`tr[data-index="${nextTaskIndex}"]`);
+             if (nextTaskRow && tasks[index].enabled) {
+                 // 獲取當前任務最新的結束時間
+                 const newEndMinutes = tasks[index].end;
+                 
+                 // 更新下一項的開始時間顯示
+                 updateStartTimeSelector(nextTaskIndex, newEndMinutes);
+             }
+        }
+    }
+    
+    // 如果是更改第一項任務的開始時間，需要檢查其結束時間是否還在有效區間
+    if (index === 0 && (field === 'startHour' || field === 'startMinute')) {
+        // ... (這裡可以添加額外的驗證，但目前主要目的是連動)
+    }
+}
+
 
 async function applySettings() {
     const newTasks = [];
@@ -549,6 +675,7 @@ async function applySettings() {
         const emoji = row.querySelector('[data-field="emoji"]').value.trim();
         const color = row.querySelector('[data-field="color"]').value;
         
+        // 由於開始時間可能被鎖定，這裡需要讀取實際的選擇器的值，而不是被鎖定的值
         const startHourElement = row.querySelector('[data-field="startHour"]');
         const startMinuteElement = row.querySelector('[data-field="startMinute"]');
         const endHourElement = row.querySelector('[data-field="endHour"]');
@@ -579,8 +706,9 @@ async function applySettings() {
                 isValid = false;
                 return;
             }
+            // 只檢查第一項的跨日邏輯，後續項目會在連動後檢查
             if (i === 0 && task.start >= task.end && task.end !== FULL_DAY_MINUTES) {
-                 alert(`第 ${i + 1} 行的時間區間無效 (開始/結束時間相同或無跨日)！`);
+                 alert(`第 ${i + 1} 行 (第一項任務) 的時間區間無效 (開始/結束時間相同或無跨日)！`);
                  isValid = false;
                  return;
             }
@@ -590,10 +718,13 @@ async function applySettings() {
 
     if (!isValid) return false; 
     
+    // V17: 再次執行連動和檢查邏輯
     for (let i = 1; i < newTasks.length; i++) {
         if (newTasks[i-1].enabled) {
-            newTasks[i].start = newTasks[i-1].end;
-            if (newTasks[i].start >= newTasks[i].end && newTasks[i].end !== FULL_DAY_MINUTES) {
+            newTasks[i].start = newTasks[i-1].end; // 強制連動
+            
+            // 檢查連動後的結束時間是否有效
+            if (newTasks[i].enabled && newTasks[i].start >= newTasks[i].end && newTasks[i].end !== FULL_DAY_MINUTES) {
                  alert(`第 ${i + 1} 行的開始時間 (${minutesToHHMM(newTasks[i].start)}) 已被前一項鎖定，但其結束時間 (${minutesToHHMM(newTasks[i].end)}) 必須晚於開始時間！請修改結束時間。`);
                  isValid = false;
                  return;
@@ -604,9 +735,11 @@ async function applySettings() {
 
     currentTasks = newTasks; 
     
+    // 儲存時，連動後的 newTasks 會被發送到 saveCloudData
     const saved = await saveCloudData(currentTasks, presets);
 
     if (saved) {
+        // 重新從雲端加載，確保數據是最終鎖定的版本
         currentTasks = JSON.parse(JSON.stringify(await getCurrentTasksFromCloud())); 
 
         updateTime(); 
@@ -616,6 +749,7 @@ async function applySettings() {
     }
     return false; 
 }
+
 
 async function getCurrentTasksFromCloud() {
     try {
@@ -714,6 +848,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 renderPresetSelector();
                 alert('✅ 記憶組已刪除並同步到雲端。');
             }
+        }
+        if (zoomStartMinutes !== 0) {
+            renderClock();
         }
     });
 });
