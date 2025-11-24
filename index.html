@@ -27,6 +27,8 @@
     position: relative;
   }
 
+  /* 🚨 V9 修正: 將整個圓盤旋轉 270 度，讓 CSS 的 0 度 (3 點鐘) 對齊 12 點鐘方向。
+     這樣 conic-gradient 的 0 度起點就會是 12 點鐘方向。 */
   .clock {
     position: relative;
     width: 380px;
@@ -35,9 +37,13 @@
     box-shadow: 0 0 50px rgba(0,0,0,0.15);
     margin-bottom: 20px; 
     transition: background 0.5s ease-in-out; 
+    
+    transform: rotate(270deg); /* 圓盤整體旋轉 */
+    transform-origin: center center;
   }
 
   /* 時鐘指針與中心點 */
+  /* 🚨 V9 修正: 指針不再需要 -270deg 偏移，只保留位移，實際旋轉由 JS 負責補償父層旋轉 */
   .minute-hand { 
     position: absolute; 
     width: 6px; 
@@ -48,17 +54,33 @@
     transform-origin: bottom center; 
     border-radius: 3px; 
     z-index: 10; 
+    /* 初始只進行 X 軸位移，JS 會計算並覆蓋旋轉角度 */
+    transform: translateX(-50%); 
   }
   .center-dot { position: absolute; width: 16px; height: 16px; background: #333; border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 11; border: 2px solid white; }
 
   /* 任務標籤 */
-  .task-label { position: absolute; font-size: 13px; font-weight: 500; text-align: center; transform: translate(-50%, -50%); z-index: 5; line-height: 1.3; color: #444; text-shadow: 0 1px 2px rgba(255,255,255,0.9); pointer-events: none; }
+  /* 🚨 V9 修正: 標籤不需反向旋轉，但其位置計算的數學角度需要調整 */
+  .task-label { 
+    position: absolute; 
+    font-size: 13px; 
+    font-weight: 500; 
+    text-align: center; 
+    transform: translate(-50%, -50%); 
+    z-index: 5; 
+    line-height: 1.3; 
+    color: #444; 
+    text-shadow: 0 1px 2px rgba(255,255,255,0.9); 
+    pointer-events: none; 
+  }
   
   /* 刻度與數字 */
   .tick { position: absolute; left: 50%; top: 0; background: rgba(0, 0, 0, 0.3); transform-origin: 50% 190px; }
-  .tick.minor { width: 1px; height: 6px; }
-  .tick.major { width: 3px; height: 12px; background: rgba(0, 0, 0, 0.6); }
+  /* 🚨 V9 修正: 刻度不再需要 -270deg 偏移，只保留位移，實際旋轉由 JS 負責 */
+  .tick.minor { width: 1px; height: 6px; transform: translateX(-50%); }
+  .tick.major { width: 3px; height: 12px; background: rgba(0, 0, 0, 0.6); transform: translateX(-50%); }
   
+  /* 數字標籤 */
   .clock-label { position: absolute; font-weight: 800; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 6; font-feature-settings: "tnum"; pointer-events: none; }
   .hour-number { font-size: 24px; color: #222; } 
   .zoom-minute-label { font-size: 18px; color: #666; } 
@@ -114,6 +136,7 @@
   <div class="minute-hand" id="minHand"></div>
   <div class="center-dot"></div>
 </div>
+<div id="taskLabelsContainer"></div>
 
 <div class="current-time-box">
   <div id="date-label" class="date-label"></div>
@@ -186,17 +209,18 @@ const MODE_AUTO = 'ZOOM_FORCED';
 const MODE_FORCED_FULL = 'FULLDAY_FORCED'; 
 
 // 預設數據 (雲端載入失敗時使用)
+// 根據您最新的設定截圖調整預設任務
 const DEFAULT_TASKS = [
     { name: '起床', emoji: '🌞', color: '#ffd6e8', start: 420, end: 430, enabled: true },      
-    { name: '穿衣服', emoji: '🌞', color: '#fdd9c7', start: 430, end: 440, enabled: true },      
-    { name: '整理書包', emoji: '🌞', color: '#ffecc7', start: 440, end: 445, enabled: true },      
-    { name: '吃早餐', emoji: '🌞', color: '#d6eaff', start: 445, end: 460, enabled: true },      
-    { name: '整理餐桌、擦嘴巴', emoji: '🌞', color: '#e5ffd6', start: 460, end: 465, enabled: true },      
-    { name: '穿鞋鞋', emoji: '🌞', color: '#e8d6ff', start: 465, end: 470, enabled: true },      
-    { name: '出門', emoji: '🌞', color: '#ffdfd6', start: 470, end: 480, enabled: true },      
-    { name: '', emoji: '', color: '#ffc7d9', start: 0, end: 0, enabled: false },  
-    { name: '', emoji: '', color: '#c7d9ff', start: 0, end: 0, enabled: false },    
-    { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false }               
+    { name: '穿衣服', emoji: '👕', color: '#fdd9c7', start: 430, end: 440, enabled: true },    
+    { name: '整理書包', emoji: '🎒', color: '#ffecc7', start: 440, end: 445, enabled: true },    
+    { name: '吃早餐', emoji: '🥣', color: '#d6eaff', start: 445, end: 460, enabled: true },    
+    { name: '整理餐桌、擦嘴巴', emoji: '🍽️', color: '#e5ffd6', start: 460, end: 465, enabled: true },
+    { name: '穿鞋子', emoji: '👟', color: '#ffdfd6', start: 465, end: 470, enabled: true },    
+    { name: '出門', emoji: '🚶', color: '#ffc7d9', start: 470, end: 475, enabled: true },  
+    { name: '上學', emoji: '🏫', color: '#c7d9ff', start: 475, end: 1020, enabled: true },  
+    { name: '回家', emoji: '🏠', color: '#e8d6ff', start: 1020, end: 1260, enabled: true },
+    { name: '睡覺', emoji: '😴', color: '#f0f0f0', start: 1260, end: 420, enabled: true }         
 ];
 const DEFAULT_PRESET_NAME = '預設作息';
 const DEFAULT_CLOUD_DATA = { 
@@ -212,10 +236,8 @@ let controlMode = MODE_FORCED_FULL;
 let zoomStartMinutes = 0; 
 let configId = BIN_ID; 
 
+// --- 時間處理與工具函式 (不變) ---
 
-// --- 時間處理與工具函式 ---
-
-// 將分鐘數轉換為 HH:MM 字串
 function minutesToHHMM(totalMinutes) {
     if (totalMinutes === 1440) return '24:00';
     totalMinutes = totalMinutes % 1440;
@@ -224,20 +246,17 @@ function minutesToHHMM(totalMinutes) {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 }
 
-// 將總分鐘數轉換為小時和分鐘對象
 function minutesToTime(totalMinutes) {
     if (typeof totalMinutes !== 'number' || isNaN(totalMinutes) || totalMinutes < 0) {
         totalMinutes = 0; 
     }
     
-    // 24:00 處理
     if (totalMinutes === 1440) return { hour: 24, minute: 0 }; 
     const hour = Math.floor(totalMinutes / 60) % 24;
     const minute = totalMinutes % 60;
     return { hour, minute };
 }
 
-// 動態生成時間選擇器 HTML
 function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd) {
     if (typeof totalMinutes !== 'number' || isNaN(totalMinutes) || totalMinutes < 0) {
         totalMinutes = 0; 
@@ -263,7 +282,7 @@ function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd) {
 }
 
 
-// --- 數據載入/儲存邏輯 ---
+// --- 數據載入/儲存邏輯 (不變) ---
 
 async function loadData() {
     const savedControl = localStorage.getItem(LOCAL_STORAGE_CONTROL_KEY);
@@ -353,23 +372,25 @@ function saveControlMode() {
 }
 
 
-// --- 時鐘渲染邏輯 (V8 修正: 色塊角度) ---
+// --- 時鐘渲染邏輯 (V9 最終修正) ---
 const clockElement = document.getElementById('clock');
 const modeIndicator = document.getElementById('mode-indicator');
+const labelsContainer = document.getElementById('taskLabelsContainer'); // 新增的標籤容器
 const cx = 190; const cy = 190; // 時鐘中心點 (Clock width/height is 380px)
 const R_TASK_LABEL = 85; // 任務標籤半徑
 const R_CLOCK_LABEL = 135; // 數字標籤半徑
 
 function renderClock() {
-    // 每次重新繪製，清除舊的內容
+    // 1. 每次重新繪製，清除舊的內容，但保留指針和中心點
     clockElement.innerHTML = `<div class="minute-hand" id="minHand"></div><div class="center-dot"></div>`;
-    
+    labelsContainer.innerHTML = ''; // 清除標籤
+
     let conicGradientStops = [];
     let enabledTasks = currentTasks.filter(t => t.enabled);
     
     let degreePerMinute, startMinuteOffset;
     
-    // --- 1. 設置模式參數 ---
+    // --- 設置模式參數 ---
     if (displayMode === 'FULL_DAY') {
         degreePerMinute = FULL_DAY_DEGREE;
         startMinuteOffset = 0;
@@ -381,46 +402,27 @@ function renderClock() {
         modeIndicator.textContent = `顯示模式：小時縮放 (${minutesToHHMM(zoomStartMinutes)} - ${minutesToHHMM(zoomEndMinutes)})`;
     }
 
-    // --- 2. 處理任務和角度計算 ---
+    // --- 處理任務和角度計算 ---
     enabledTasks.forEach(task => {
         let originalStart = task.start;
         let originalEnd = task.end;
         
         let segments = [];
 
-        // 檢查任務是否跨日，並切割成兩個 0-1440 區間的片段
+        // 檢查任務是否跨日，並切割成片段
         if (originalStart >= originalEnd) {
-            // 片段 1: 從 start 到 24:00 (1440)
-            segments.push({
-                start: originalStart,
-                end: FULL_DAY_MINUTES,
-                isWrapped: true 
-            });
-            // 片段 2: 從 00:00 (0) 到 end
-            segments.push({
-                start: 0,
-                end: originalEnd === 0 ? FULL_DAY_MINUTES : originalEnd,
-                isWrapped: true 
-            });
+            segments.push({ start: originalStart, end: FULL_DAY_MINUTES });
+            segments.push({ start: 0, end: originalEnd === 0 ? FULL_DAY_MINUTES : originalEnd });
         } else {
-            segments.push({
-                start: originalStart,
-                end: originalEnd,
-                isWrapped: false
-            });
+            segments.push({ start: originalStart, end: originalEnd });
         }
-
 
         let largestDuration = 0;
 
-        // 遍歷所有區段
         segments.forEach(segment => {
             let start = segment.start % FULL_DAY_MINUTES;
             let end = segment.end % FULL_DAY_MINUTES;
-            
-            if (segment.end === FULL_DAY_MINUTES) {
-                end = FULL_DAY_MINUTES; 
-            }
+            if (segment.end === FULL_DAY_MINUTES) end = FULL_DAY_MINUTES; 
             
             let duration = end - start;
             if (duration <= 0) return;
@@ -431,56 +433,67 @@ function renderClock() {
                 relativeStartMinutes = start; 
                 relativeEndMinutes = end;
                 duration = relativeEndMinutes - relativeStartMinutes;
-                
             } else { // 1H ZOOM 模式
                 const zoomEndMinutes = startMinuteOffset + 60;
-                
                 let clippedStart = Math.max(start, startMinuteOffset);
                 let clippedEnd = Math.min(end, zoomEndMinutes);
                 
                 if (clippedEnd <= clippedStart) return; 
                 
-                relativeStartMinutes = clippedStart - startMinuteOffset; // 轉換到 0-60 區間
-                relativeEndMinutes = clippedEnd - startMinuteOffset;     // 轉換到 0-60 區間
+                relativeStartMinutes = clippedStart - startMinuteOffset;
+                relativeEndMinutes = clippedEnd - startMinuteOffset;
                 duration = relativeEndMinutes - relativeStartMinutes;
             }
             
-            // 3. V8 修正: 色塊角度
-            // 讓 00:00 對齊 12 點 (CSS 270 度)。
-            // 使用 (分鐘數 * 0.25) + 270 作為起始角度，確保從 12 點開始順時針旋轉。
-            let gradientStartDeg = (relativeStartMinutes * degreePerMinute) + 270;
+            // 🚨 V9 修正: 由於圓盤已旋轉，conic-gradient 角度直接從 0 度開始計算 (0 度在 12 點)
+            let gradientStartDeg = relativeStartMinutes * degreePerMinute;
             let gradientStopDeg = gradientStartDeg + (duration * degreePerMinute);
 
-            // 確保起始角度在 0-360 範圍
             gradientStartDeg = gradientStartDeg % 360;
             
             conicGradientStops.push(`${task.color} ${gradientStartDeg}deg ${gradientStopDeg}deg`);
             
             
-            // 4. 標籤位置： 
-            // 標籤的角度計算必須基於 0 度在 12 點的邏輯
+            // 標籤位置：
             if (duration * degreePerMinute > largestDuration) { 
                 largestDuration = duration * degreePerMinute;
                 
                 let middleMinutes = relativeStartMinutes + duration / 2;
 
-                // 標籤的角度修正：減去 90 度，將圓環座標系統 (0度在頂部) 轉換為標準數學座標 (0度在右側) 
+                // 標籤的角度修正：我們計算的角度 (middleAngleDeg) 是 0 度在 12 點。
                 let middleAngleDeg = middleMinutes * degreePerMinute;
-                let middleAngleRad = (middleAngleDeg - 90) * Math.PI / 180;
+
+                // 轉換為標準數學角度 (0 度在 3 點，順時針為負，逆時針為正) 
+                // 或直接轉換為 CSS 座標 (0 度在 12 點，順時針為正)
+                // 為了使用 Math.cos/sin，我們需要一個標準座標系 (0 度在右，逆時針為正，但這很麻煩)
+                // 讓我們使用： 0 度在 3 點，角度逆時針增加
+                
+                // 數學角度 (0度在右側X軸，逆時針增加)
+                // 從 12 點順時針的角度 (middleAngleDeg) 轉換為 3 點逆時針的角度 (angleRad)
+                // 12點是 90度。3點是 0度。
+                let angleRad = (90 - middleAngleDeg) * Math.PI / 180;
                 
                 const div = document.createElement('div');
                 div.className = 'task-label';
                 
-                // 標籤顯示優化
                 if (duration < 10 && displayMode === 'ZOOM') {
                      div.innerHTML = `${task.emoji}`;
                 } else {
                      div.innerHTML = `${task.emoji}<br>${task.name}`;
                 }
                
-                div.style.left = `${cx + R_TASK_LABEL * Math.cos(middleAngleRad)}px`;
-                div.style.top = `${cy + R_TASK_LABEL * Math.sin(middleAngleRad)}px`;
-                clockElement.appendChild(div);
+                // 取得時鐘中心點在螢幕上的座標
+                const clockRect = clockElement.getBoundingClientRect();
+                const clockCenter = { 
+                    x: clockRect.left + clockRect.width / 2, 
+                    y: clockRect.top + clockRect.height / 2 
+                };
+                
+                // 計算標籤位置 (相對於 body)
+                div.style.left = `${clockCenter.x + R_TASK_LABEL * Math.cos(angleRad)}px`;
+                div.style.top = `${clockCenter.y - R_TASK_LABEL * Math.sin(angleRad)}px`; // Y軸反向
+                
+                labelsContainer.appendChild(div);
             }
         });
     });
@@ -488,38 +501,37 @@ function renderClock() {
     // 設置圓環背景
     clockElement.style.background = `conic-gradient(${conicGradientStops.join(', ')})`;
     
-    // --- 6. 繪製刻度與數字 ---
-    // 刻度與數字的擺放，因為是單獨的 div 旋轉，不需 270 度修正。
+    // --- 繪製刻度與數字 ---
     if (displayMode === 'FULL_DAY') {
         for (let h = 1; h <= 12; h++) {
           const num = document.createElement('div');
           num.className = 'clock-label hour-number';
           num.textContent = h;
-          // 數字位置：角度需要偏移 90 度 (將時鐘角度轉為數學角度)
-          const angle = (h * 30 - 90) * Math.PI / 180; 
-          num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angle)}px`;
-          num.style.top = `${cy + R_CLOCK_LABEL * Math.sin(angle)}px`;
-          clockElement.appendChild(num);
+          
+          // 數字位置：角度 (h * 30) 是 0 度在 12 點。轉換成數學座標 (90 - deg)
+          const angleRad = (90 - h * 30) * Math.PI / 180; 
+          
+          num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angleRad)}px`;
+          num.style.top = `${cy - R_CLOCK_LABEL * Math.sin(angleRad)}px`; // Y軸反向
+          labelsContainer.appendChild(num); // 數字也移到 labelsContainer
         }
         for (let i = 0; i < 60; i++) {
             const tick = document.createElement('div');
             tick.className = 'tick ' + (i % 5 === 0 ? 'major' : 'minor');
-            // 刻度旋轉不需要偏移，它是相對於頂部的 0 度
+            // 🚨 V9 修正: 刻度旋轉不再需要偏移或反向旋轉，因為父層已經轉好。
             tick.style.transform = `translateX(-50%) rotate(${i * 6}deg)`;
             clockElement.appendChild(tick);
         }
 
     } else { 
-        const hour = Math.floor(zoomStartMinutes / 60);
         for (let i = 0; i < 60; i += 5) {
             const isMajor = i % 15 === 0;
             const labelText = i.toString().padStart(2, '0');
             const deg = i * 6; 
-            // 數字位置：角度需要偏移 90 度
-            const angleRad = (deg - 90) * Math.PI / 180; 
             
             const tick = document.createElement('div');
             tick.className = 'tick ' + (isMajor ? 'major' : 'minor');
+            // 🚨 V9 修正: 刻度旋轉不再需要偏移或反向旋轉
             tick.style.transform = `translateX(-50%) rotate(${deg}deg)`;
             clockElement.appendChild(tick);
             
@@ -527,16 +539,20 @@ function renderClock() {
                 const num = document.createElement('div');
                 num.className = 'clock-label zoom-minute-label';
                 num.textContent = `${labelText}`; 
+                
+                // 數字位置：角度 deg 是 0 度在 12 點。轉換成數學座標 (90 - deg)
+                const angleRad = (90 - deg) * Math.PI / 180;
+                
                 num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angleRad)}px`;
-                num.style.top = `${cy + R_CLOCK_LABEL * Math.sin(angleRad)}px`;
-                clockElement.appendChild(num);
+                num.style.top = `${cy - R_CLOCK_LABEL * Math.sin(angleRad)}px`; // Y軸反向
+                labelsContainer.appendChild(num);
             }
         }
     }
 }
 
 
-// updateTime 核心邏輯 (V8 修正: 指針角度)
+// updateTime 核心邏輯 (V9 修正: 指針角度)
 function updateTime() {
     const now = new Date();
     const h = now.getHours();
@@ -562,24 +578,22 @@ function updateTime() {
         renderClock();
     }
     
-    let rotationDegree = 0;
+    let rotationDegree = 0; // 這是我們期望指針指向的 "0 度在 12 點" 的角度
     
-    // 🚨 V8 修正: 指針角度計算 - 確保 00:00 指向 12 點方向 (CSS 的 270度或 -90度)
     if (displayMode === 'FULL_DAY') {
-        // 1. 計算總角度 (0 分鐘 = 0 度)
-        const totalDegree = currentTotalMinutes * FULL_DAY_DEGREE; 
-        
-        // 2. 加上 270 度偏移，讓 0 度從 12 點方向開始順時針旋轉
-        rotationDegree = totalDegree + 270;
-        rotationDegree = rotationDegree % 360; 
+        // 🚨 V9 修正: 24 小時環必須使用總分鐘數 * 0.25 度/分鐘
+        rotationDegree = currentTotalMinutes * FULL_DAY_DEGREE; 
         
     } else { 
         // 1H 縮放模式下：當前小時內的分鐘數 * 6 度/分鐘。
         const minutesInHour = currentTotalMinutes - zoomStartMinutes;
-        rotationDegree = minutesInHour * ZOOM_DEGREE - 90;
+        rotationDegree = minutesInHour * ZOOM_DEGREE;
     }
     
-    document.getElementById('minHand').style.transform = `translateX(-50%) rotate(${rotationDegree}deg)`;
+    // 🚨 V9 修正: 指針必須減去 270 度來抵消父層 (.clock) 的 270 度旋轉。
+    const finalHandRotation = rotationDegree - 270;
+    
+    document.getElementById('minHand').style.transform = `translateX(-50%) rotate(${finalHandRotation}deg)`;
     
     document.getElementById('current-time').textContent = 
         `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
@@ -588,7 +602,7 @@ function updateTime() {
 }
 
 
-// --- 設定介面渲染與互動 ---
+// --- 設定介面渲染與互動 (不變) ---
 
 const tasksBody = document.getElementById('tasksBody');
 const modal = document.getElementById('settingsModal');
@@ -708,7 +722,6 @@ function renderPresetSelector() {
 // --- 初始化與事件監聽 ---
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 檢查舊的 401 錯誤是否還存在，如果不存在，則雲端同步成功
     await loadData(); 
     
     updateModeButton(); 
