@@ -171,8 +171,8 @@
 <script>
 // --- 雲端同步設定 (已植入您的金鑰和 ID) ---
 // 🚨 如果依然出現 401 錯誤，請檢查 jsonbin.io 該 Bin 的權限設定是否為 Public Read/Write。
-const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsfFd0RuYmxubPyt2bjV5yS'; 
-const BIN_ID = '6923f5dcd0ea881f40fc4e32';
+const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsvFd0RuYmxubPyt2bjV5yS'; 
+const BIN_ID = '6924168743b1c97be9c18709';
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 // --- 核心數據與模式設定 ---
@@ -188,13 +188,13 @@ const MODE_FORCED_FULL = 'FULLDAY_FORCED';
 
 // 預設數據 (雲端載入失敗時使用)
 const DEFAULT_TASKS = [
-    { name: '起床', emoji: '🌞', color: '#ffd6e8', start: 420, end: 510, enabled: true },      
-    { name: '上學', emoji: '🎒', color: '#fdd9c7', start: 510, end: 1020, enabled: true },    
-    { name: '回家', emoji: '🏠', color: '#ffecc7', start: 1020, end: 1140, enabled: true },    
-    { name: '洗澡', emoji: '🛁', color: '#d6eaff', start: 1140, end: 1260, enabled: true },    
-    { name: '睡覺', emoji: '😴', color: '#e5ffd6', start: 1260, end: 420, enabled: true },      
-    { name: '', emoji: '', color: '#e8d6ff', start: 0, end: 0, enabled: false },  
-    { name: '', emoji: '', color: '#ffdfd6', start: 0, end: 0, enabled: false },    
+    { name: '起床', emoji: '🌞', color: '#ffd6e8', start: 420, end: 430, enabled: true },      
+    { name: '穿衣服', emoji: '👕', color: '#fdd9c7', start: 430, end: 440, enabled: true },      
+    { name: '整理書包', emoji: '🎒', color: '#ffecc7', start: 440, end: 445, enabled: true },      
+    { name: '吃早餐', emoji: '🍳', color: '#d6eaff', start: 445, end: 460, enabled: true },      
+    { name: '整理餐桌、擦嘴巴', emoji: '🧻', color: '#e5ffd6', start: 460, end: 465, enabled: true },      
+    { name: '穿鞋鞋', emoji: '👟', color: '#e8d6ff', start: 465, end: 470, enabled: true },      
+    { name: '出門', emoji: '🚪', color: '#ffdfd6', start: 470, end: 480, enabled: true },      
     { name: '', emoji: '', color: '#ffc7d9', start: 0, end: 0, enabled: false },  
     { name: '', emoji: '', color: '#c7d9ff', start: 0, end: 0, enabled: false },    
     { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false }               
