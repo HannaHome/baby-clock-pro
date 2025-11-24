@@ -38,7 +38,6 @@
   }
 
   /* 時鐘指針與中心點 */
-  /* 將指針的 top 調整到圓心上方，讓旋轉中心在底部 */
   .minute-hand { 
     position: absolute; 
     width: 6px; 
@@ -169,10 +168,10 @@
 </div>
 
 <script>
-// --- 雲端同步設定 (已植入您的金鑰和 ID) ---
-// 🚨 如果依然出現 401 錯誤，請檢查 jsonbin.io 該 Bin 的權限設定是否為 Public Read/Write。
-const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsvFd0RuYmxubPyt2bjV5yS'; 
-const BIN_ID = '6924168743b1c97be9c18709';
+// --- 雲端同步設定 ---
+// 您的 Master Key 和新的 Bin ID
+const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsfFd0RuYmxubPyt2bjV5yS'; 
+const BIN_ID = '6924168743b1c97be9c18709'; 
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 // --- 核心數據與模式設定 ---
@@ -189,12 +188,12 @@ const MODE_FORCED_FULL = 'FULLDAY_FORCED';
 // 預設數據 (雲端載入失敗時使用)
 const DEFAULT_TASKS = [
     { name: '起床', emoji: '🌞', color: '#ffd6e8', start: 420, end: 430, enabled: true },      
-    { name: '穿衣服', emoji: '👕', color: '#fdd9c7', start: 430, end: 440, enabled: true },      
-    { name: '整理書包', emoji: '🎒', color: '#ffecc7', start: 440, end: 445, enabled: true },      
-    { name: '吃早餐', emoji: '🍳', color: '#d6eaff', start: 445, end: 460, enabled: true },      
-    { name: '整理餐桌、擦嘴巴', emoji: '🧻', color: '#e5ffd6', start: 460, end: 465, enabled: true },      
-    { name: '穿鞋鞋', emoji: '👟', color: '#e8d6ff', start: 465, end: 470, enabled: true },      
-    { name: '出門', emoji: '🚪', color: '#ffdfd6', start: 470, end: 480, enabled: true },      
+    { name: '穿衣服', emoji: '🌞', color: '#fdd9c7', start: 430, end: 440, enabled: true },      
+    { name: '整理書包', emoji: '🌞', color: '#ffecc7', start: 440, end: 445, enabled: true },      
+    { name: '吃早餐', emoji: '🌞', color: '#d6eaff', start: 445, end: 460, enabled: true },      
+    { name: '整理餐桌、擦嘴巴', emoji: '🌞', color: '#e5ffd6', start: 460, end: 465, enabled: true },      
+    { name: '穿鞋鞋', emoji: '🌞', color: '#e8d6ff', start: 465, end: 470, enabled: true },      
+    { name: '出門', emoji: '🌞', color: '#ffdfd6', start: 470, end: 480, enabled: true },      
     { name: '', emoji: '', color: '#ffc7d9', start: 0, end: 0, enabled: false },  
     { name: '', emoji: '', color: '#c7d9ff', start: 0, end: 0, enabled: false },    
     { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false }               
@@ -279,7 +278,6 @@ async function loadData() {
         });
         
         if (!response.ok) {
-            // 雲端載入失敗時，記錄錯誤並拋出，讓程式使用預設值
             throw new Error(`Cloud load failed: ${response.status} (${response.statusText})`);
         }
         
@@ -355,7 +353,7 @@ function saveControlMode() {
 }
 
 
-// --- 時鐘渲染邏輯 (修正圓環顏色位置) ---
+// --- 時鐘渲染邏輯 (V8 修正: 色塊角度) ---
 const clockElement = document.getElementById('clock');
 const modeIndicator = document.getElementById('mode-indicator');
 const cx = 190; const cy = 190; // 時鐘中心點 (Clock width/height is 380px)
@@ -387,26 +385,11 @@ function renderClock() {
     enabledTasks.forEach(task => {
         let originalStart = task.start;
         let originalEnd = task.end;
-        let taskDuration = originalEnd - originalStart;
-
-        // 處理跨日任務 (End < Start)
-        if (taskDuration <= 0) {
-            taskDuration += FULL_DAY_MINUTES;
-            originalEnd += FULL_DAY_MINUTES; 
-        }
         
-        // 任務可能需要被分解成多個區段 (例如跨午夜)
         let segments = [];
-        let currentSegmentStart = originalStart;
-        
-        // 處理起始時間點的調整，確保在 0-1440 區間內
-        let adjustedOriginalEnd = originalEnd;
-        if (originalEnd % FULL_DAY_MINUTES === 0 && originalEnd > 0) {
-             adjustedOriginalEnd = FULL_DAY_MINUTES;
-        }
 
         // 檢查任務是否跨日，並切割成兩個 0-1440 區間的片段
-        if (task.start >= task.end) {
+        if (originalStart >= originalEnd) {
             // 片段 1: 從 start 到 24:00 (1440)
             segments.push({
                 start: originalStart,
@@ -416,7 +399,7 @@ function renderClock() {
             // 片段 2: 從 00:00 (0) 到 end
             segments.push({
                 start: 0,
-                end: task.end === 0 ? FULL_DAY_MINUTES : task.end,
+                end: originalEnd === 0 ? FULL_DAY_MINUTES : originalEnd,
                 isWrapped: true 
             });
         } else {
@@ -429,23 +412,18 @@ function renderClock() {
 
 
         let largestDuration = 0;
-        let labelMiddleMinutes = 0; 
 
         // 遍歷所有區段
         segments.forEach(segment => {
             let start = segment.start % FULL_DAY_MINUTES;
             let end = segment.end % FULL_DAY_MINUTES;
             
-            // 處理 24:00 (0) 的情況
             if (segment.end === FULL_DAY_MINUTES) {
                 end = FULL_DAY_MINUTES; 
             }
             
             let duration = end - start;
-            if (duration <= 0) {
-                 // 忽略無效區段，除非它是 24:00 
-                 if (!(start === 0 && end === 0)) return; 
-            }
+            if (duration <= 0) return;
 
             let relativeStartMinutes, relativeEndMinutes;
 
@@ -460,11 +438,6 @@ function renderClock() {
                 let clippedStart = Math.max(start, startMinuteOffset);
                 let clippedEnd = Math.min(end, zoomEndMinutes);
                 
-                // 處理跨日任務在當前小時的邊界
-                if (start > end && start > startMinuteOffset) {
-                    clippedStart = startMinuteOffset; 
-                }
-                
                 if (clippedEnd <= clippedStart) return; 
                 
                 relativeStartMinutes = clippedStart - startMinuteOffset; // 轉換到 0-60 區間
@@ -472,95 +445,51 @@ function renderClock() {
                 duration = relativeEndMinutes - relativeStartMinutes;
             }
             
-            // 3. 轉換為角度：讓 00:00 對齊 0 度 (12 點方向)。
-            let startDeg = relativeStartMinutes * degreePerMinute;
-            let stopDeg = startDeg + (duration * degreePerMinute);
+            // 3. V8 修正: 色塊角度
+            // 讓 00:00 對齊 12 點 (CSS 270 度)。
+            // 使用 (分鐘數 * 0.25) + 270 作為起始角度，確保從 12 點開始順時針旋轉。
+            let gradientStartDeg = (relativeStartMinutes * degreePerMinute) + 270;
+            let gradientStopDeg = gradientStartDeg + (duration * degreePerMinute);
 
-            // 確保 conic-gradient 角度是 0 到 360 之間的有效值
-            startDeg = startDeg % 360;
-            if (startDeg < 0) startDeg += 360;
-
-            conicGradientStops.push(`${task.color} ${startDeg}deg ${stopDeg}deg`);
+            // 確保起始角度在 0-360 範圍
+            gradientStartDeg = gradientStartDeg % 360;
+            
+            conicGradientStops.push(`${task.color} ${gradientStartDeg}deg ${gradientStopDeg}deg`);
             
             
-            // 4. 標籤位置： (計算角度時不需偏移 -90 度)
-            // 這裡使用原始的 start/end 來定位最大的區段，因為 relativeStartMinutes/duration 是片段
-            let labelDuration = segment.end - segment.start;
-            if (labelDuration <= 0) {
-                 labelDuration += FULL_DAY_MINUTES; 
-            }
-
-            if (labelDuration > largestDuration) {
-                largestDuration = labelDuration;
-                // 修正標籤位置的計算，使用相對於 00:00 的分鐘數
-                let middleMinutes = ((segment.start + segment.end) / 2) % FULL_DAY_MINUTES;
-                if (segment.start >= segment.end) {
-                    middleMinutes = (segment.start + (segment.end + FULL_DAY_MINUTES)) / 2;
-                }
+            // 4. 標籤位置： 
+            // 標籤的角度計算必須基於 0 度在 12 點的邏輯
+            if (duration * degreePerMinute > largestDuration) { 
+                largestDuration = duration * degreePerMinute;
                 
-                if (displayMode === 'ZOOM') {
-                     // 在縮放模式下，需要計算中間點相對於 zoomStartMinutes 的分鐘數
-                     middleMinutes = (startMinuteOffset + 60) / 2;
-                }
+                let middleMinutes = relativeStartMinutes + duration / 2;
 
-                labelMiddleMinutes = (segment.start + segment.end) / 2;
-                if (segment.start >= segment.end) {
-                    labelMiddleMinutes = (segment.start + (segment.end + FULL_DAY_MINUTES)) / 2;
-                }
-                labelMiddleMinutes = labelMiddleMinutes % FULL_DAY_MINUTES;
-
-                // 轉換到當前模式的相對分鐘數
-                if (displayMode === 'ZOOM') {
-                    // 檢查 labelMiddleMinutes 是否在縮放區間內
-                    const zoomEndMinutes = startMinuteOffset + 60;
-                    if (labelMiddleMinutes >= startMinuteOffset && labelMiddleMinutes <= zoomEndMinutes) {
-                        labelMiddleMinutes = (start + duration / 2);
-                    } else {
-                        // 如果標籤點不在當前縮放區間，我們不渲染它 (或者選擇中間點)
-                        labelMiddleMinutes = relativeStartMinutes + duration / 2;
-                    }
+                // 標籤的角度修正：減去 90 度，將圓環座標系統 (0度在頂部) 轉換為標準數學座標 (0度在右側) 
+                let middleAngleDeg = middleMinutes * degreePerMinute;
+                let middleAngleRad = (middleAngleDeg - 90) * Math.PI / 180;
+                
+                const div = document.createElement('div');
+                div.className = 'task-label';
+                
+                // 標籤顯示優化
+                if (duration < 10 && displayMode === 'ZOOM') {
+                     div.innerHTML = `${task.emoji}`;
                 } else {
-                     // 確保標籤角度是基於 0-1440 區間
-                     labelMiddleMinutes = (segment.start + (segment.end === 0 ? FULL_DAY_MINUTES : segment.end)) / 2;
-                     labelMiddleMinutes = labelMiddleMinutes % FULL_DAY_MINUTES;
+                     div.innerHTML = `${task.emoji}<br>${task.name}`;
                 }
+               
+                div.style.left = `${cx + R_TASK_LABEL * Math.cos(middleAngleRad)}px`;
+                div.style.top = `${cy + R_TASK_LABEL * Math.sin(middleAngleRad)}px`;
+                clockElement.appendChild(div);
             }
         });
-        
-        // 5. 繪製標籤 
-        if (task.name && task.emoji && largestDuration > 0) { 
-            // 標籤的角度修正：減去 90 度，將圓環座標系統 (0度在頂部) 轉換為標準數學座標 (0度在右側) 
-            let middleAngleDeg;
-
-            if (displayMode === 'FULL_DAY') {
-                 middleAngleDeg = labelMiddleMinutes * FULL_DAY_DEGREE;
-            } else {
-                 const relativeZoomMinutes = (labelMiddleMinutes - zoomStartMinutes + FULL_DAY_MINUTES) % FULL_DAY_MINUTES;
-                 middleAngleDeg = relativeZoomMinutes * ZOOM_DEGREE;
-            }
-            
-            let middleAngleRad = (middleAngleDeg - 90) * Math.PI / 180;
-            
-            const div = document.createElement('div');
-            div.className = 'task-label';
-            
-            // 標籤顯示優化
-            if (largestDuration < 10 && displayMode === 'ZOOM') {
-                 div.innerHTML = `${task.emoji}`;
-            } else {
-                 div.innerHTML = `${task.emoji}<br>${task.name}`;
-            }
-           
-            div.style.left = `${cx + R_TASK_LABEL * Math.cos(middleAngleRad)}px`;
-            div.style.top = `${cy + R_TASK_LABEL * Math.sin(middleAngleRad)}px`;
-            clockElement.appendChild(div);
-        }
     });
 
     // 設置圓環背景
     clockElement.style.background = `conic-gradient(${conicGradientStops.join(', ')})`;
     
     // --- 6. 繪製刻度與數字 ---
+    // 刻度與數字的擺放，因為是單獨的 div 旋轉，不需 270 度修正。
     if (displayMode === 'FULL_DAY') {
         for (let h = 1; h <= 12; h++) {
           const num = document.createElement('div');
@@ -597,7 +526,6 @@ function renderClock() {
             if (isMajor) {
                 const num = document.createElement('div');
                 num.className = 'clock-label zoom-minute-label';
-                // 為了不讓標籤文字太長，只顯示分鐘數
                 num.textContent = `${labelText}`; 
                 num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angleRad)}px`;
                 num.style.top = `${cy + R_CLOCK_LABEL * Math.sin(angleRad)}px`;
@@ -608,7 +536,7 @@ function renderClock() {
 }
 
 
-// updateTime 核心邏輯 (修正指針角度)
+// updateTime 核心邏輯 (V8 修正: 指針角度)
 function updateTime() {
     const now = new Date();
     const h = now.getHours();
@@ -635,10 +563,16 @@ function updateTime() {
     }
     
     let rotationDegree = 0;
+    
+    // 🚨 V8 修正: 指針角度計算 - 確保 00:00 指向 12 點方向 (CSS 的 270度或 -90度)
     if (displayMode === 'FULL_DAY') {
-        // 24H 模式下：總分鐘數 * 0.25 度/分鐘。
-        // 減去 90 度，讓 00:00 的指針從 12 點鐘方向開始 (CSS 0 度是 3 點鐘方向)。
-        rotationDegree = currentTotalMinutes * FULL_DAY_DEGREE - 90;
+        // 1. 計算總角度 (0 分鐘 = 0 度)
+        const totalDegree = currentTotalMinutes * FULL_DAY_DEGREE; 
+        
+        // 2. 加上 270 度偏移，讓 0 度從 12 點方向開始順時針旋轉
+        rotationDegree = totalDegree + 270;
+        rotationDegree = rotationDegree % 360; 
+        
     } else { 
         // 1H 縮放模式下：當前小時內的分鐘數 * 6 度/分鐘。
         const minutesInHour = currentTotalMinutes - zoomStartMinutes;
@@ -664,7 +598,6 @@ function renderSettings() {
     tasksBody.innerHTML = '';
     for (let i = 0; i < MAX_TASKS; i++) {
         const task = currentTasks[i] || { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false };
-        // 確保 generateTimeSelectors 函數在此處被正確調用
         const startTimeSelectors = generateTimeSelectors(i, 'start', task.start, false);
         const endTimeSelectors = generateTimeSelectors(i, 'end', task.end, true); 
 
@@ -724,14 +657,9 @@ async function applySettings() {
                 isValid = false;
                 return;
             }
-             // 檢查結束時間是否小於或等於開始時間，除非是跨日（Start > End）或 24:00 (End = 1440)
             if (task.start >= task.end && task.end !== FULL_DAY_MINUTES) {
-                 // 允許 Start: 23:00, End: 07:00 (跨日)
-                 // 允許 Start: 07:00, End: 24:00
-                 // 不允許 Start: 07:00, End: 07:00 (除非 Start = End = 1440/0)
                  if (task.start !== task.end) {
-                      // 這是跨日任務，需要檢查是否有衝突
-                      // 暫時放行跨日任務，讓使用者自行檢查衝突
+                      // 這是跨日任務，允許
                  } else {
                      alert(`第 ${i + 1} 行的時間區間無效 (開始/結束時間相同)！`);
                      isValid = false;
@@ -746,7 +674,6 @@ async function applySettings() {
 
     currentTasks = newTasks;
     
-    // 呼叫雲端儲存
     const saved = await saveCloudData(currentTasks, presets);
 
     if (saved) {
@@ -781,7 +708,7 @@ function renderPresetSelector() {
 // --- 初始化與事件監聽 ---
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 非同步載入數據
+    // 檢查舊的 401 錯誤是否還存在，如果不存在，則雲端同步成功
     await loadData(); 
     
     updateModeButton(); 
@@ -789,19 +716,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     function animate() {
         updateTime();
-        // 確保每秒更新一次時間
         requestAnimationFrame(animate); 
     }
     requestAnimationFrame(animate);
 
-    // 開啟設定 
     document.getElementById('settingsBtn').addEventListener('click', () => {
         try {
             renderSettings();
             modal.style.display = 'flex';
         } catch (error) {
             console.error("開啟設定彈窗時發生錯誤:", error);
-            // 避免彈窗開啟失敗，強行打開並顯示錯誤提示
             modal.style.display = 'flex'; 
             alert("⚠️ 開啟設定發生嚴重錯誤，請檢查瀏覽器控制台 (Console)。");
         }
@@ -810,7 +734,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('closeSettingsBtn').addEventListener('click', () => { modal.style.display = 'none'; });
     document.getElementById('saveSettingsBtn').addEventListener('click', applySettings);
 
-    // 模式切換 (強制手動切換)
     document.getElementById('modeToggleButton').addEventListener('click', () => {
         if (controlMode === MODE_FORCED_FULL) {
             controlMode = MODE_AUTO; 
@@ -821,7 +744,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateTime(); 
     });
 
-    // 載入記憶組
     document.getElementById('loadPresetBtn').addEventListener('click', () => {
         const name = presetSelector.value;
         if (confirm(`確定要載入「${name}」嗎？目前的設定將會被覆蓋！`)) {
@@ -831,18 +753,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 儲存記憶組 (需同步到雲端)
     document.getElementById('savePresetBtn').addEventListener('click', async () => {
         const nameInput = document.getElementById('newPresetName');
         const name = nameInput.value.trim();
         if (!name) { alert('請輸入記憶組名稱！'); return; }
         if (presets[name] && !confirm(`記憶組「${name}」已存在，確定要覆蓋嗎？`)) { return; }
         
-        // 先應用當前設定，並嘗試同步
         const applied = await applySettings(); 
         if (!applied) return; 
         
-        // 成功同步後，將當前任務列表存入 Preset
         presets[name] = JSON.parse(JSON.stringify(currentTasks)); 
         const saved = await saveCloudData(currentTasks, presets);
         
@@ -853,7 +772,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 刪除記憶組 (需同步到雲端)
     document.getElementById('deletePresetBtn').addEventListener('click', async () => {
         const name = presetSelector.value;
         if (confirm(`確定要刪除記憶組「${name}」嗎？此操作不可復原！`)) {
