@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="作息時鐘">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+<title>寶寶作息時鐘 - 雲端同步版</title>
+<style>
+  /* 全域設定 */
+  body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #fffafc;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    position: relative;
+  }
+
+  .clock {
+    position: relative;
+    width: 380px;
+    height: 380px;
+    border-radius: 50%;
+    box-shadow: 0 0 50px rgba(0,0,0,0.15);
+    margin-bottom: 20px; 
+    transition: background 0.5s ease-in-out; 
+  }
+
+  /* 時鐘指針與中心點 */
+  /* 將指針的 top 調整到圓心上方，讓旋轉中心在底部 */
+  .minute-hand { 
+    position: absolute; 
+    width: 6px; 
+    height: 160px; 
+    background: #333; 
+    top: 30px; 
+    left: 50%; 
+    transform-origin: bottom center; 
+    border-radius: 3px; 
+    z-index: 10; 
+  }
+  .center-dot { position: absolute; width: 16px; height: 16px; background: #333; border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 11; border: 2px solid white; }
+
+  /* 任務標籤 */
+  .task-label { position: absolute; font-size: 13px; font-weight: 500; text-align: center; transform: translate(-50%, -50%); z-index: 5; line-height: 1.3; color: #444; text-shadow: 0 1px 2px rgba(255,255,255,0.9); pointer-events: none; }
+  
+  /* 刻度與數字 */
+  .tick { position: absolute; left: 50%; top: 0; background: rgba(0, 0, 0, 0.3); transform-origin: 50% 190px; }
+  .tick.minor { width: 1px; height: 6px; }
+  .tick.major { width: 3px; height: 12px; background: rgba(0, 0, 0, 0.6); }
+  
+  .clock-label { position: absolute; font-weight: 800; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 6; font-feature-settings: "tnum"; pointer-events: none; }
+  .hour-number { font-size: 24px; color: #222; } 
+  .zoom-minute-label { font-size: 18px; color: #666; } 
+
+  /* 時間顯示框 */
+  .current-time-box { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); padding: 15px 40px; border-radius: 25px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); text-align: center; border: 1px solid rgba(255,255,255,0.5); }
+  .current-time { font-size: 40pt; font-weight: bold; color: #333; font-variant-numeric: tabular-nums; line-height: 1; }
+  .date-label { font-size: 14pt; color: #888; margin-bottom: 8px; font-weight: 500; }
+  .mode-indicator { font-size: 14pt; font-weight: bold; margin-top: 5px; }
+
+  /* --- 模式切換按鈕 --- */
+  #modeToggleButton {
+    background: #007aff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  }
+  
+  /* --- 設定按鈕與彈窗樣式 --- */
+  #settingsBtn { position: absolute; top: 20px; right: 20px; background: white; padding: 10px; border-radius: 50%; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); font-size: 24px; line-height: 1; cursor: pointer; z-index: 50; }
+  #settingsModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(10px); z-index: 100; display: none; justify-content: center; align-items: center; overflow-y: auto; padding: 20px 0; }
+  .modal-content { background: white; border-radius: 20px; width: 95%; max-width: 900px; max-height: 95%; overflow-y: auto; padding: 20px 30px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .modal-header h2 { color: #333; font-size: 28px; }
+  .modal-actions button, .preset-actions button { padding: 10px 20px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-left: 10px; }
+  #saveSettingsBtn { background: #4CAF50; color: white; }
+  #closeSettingsBtn { background: #f44336; color: white; }
+  #loadPresetBtn { background: #2196F3; color: white; }
+  #savePresetBtn { background: #FF9800; color: white; }
+  #deletePresetBtn { background: #F44336; color: white; }
+  #tasksTable { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+  #tasksTable th, #tasksTable td { padding: 10px 5px; text-align: center; border-bottom: 1px solid #eee; }
+  #tasksTable input[type="text"] { padding: 5px; border: 1px solid #ccc; border-radius: 5px; width: 100%; box-sizing: border-box; }
+  #tasksTable input[type="color"] { width: 30px; height: 30px; padding: 0; border: none; border-radius: 5px; vertical-align: middle; }
+  .time-select-group { display: flex; gap: 3px; justify-content: center; }
+  .time-select-group select { width: 45%; padding: 5px; border: 1px solid #ccc; border-radius: 5px; }
+  .preset-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<div id="settingsBtn">⚙️</div>
+
+<button id="modeToggleButton"></button>
+
+<div id="clock" class="clock">
+  <div class="minute-hand" id="minHand"></div>
+  <div class="center-dot"></div>
+</div>
+
+<div class="current-time-box">
+  <div id="date-label" class="date-label"></div>
+  <div id="current-time" class="current-time"></div>
+  <div id="mode-indicator" class="mode-indicator"></div>
+</div>
+
+<div id="settingsModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>作息排程設定 (分鐘粒度)</h2>
+            <div class="modal-actions">
+                <button id="saveSettingsBtn">💾 儲存並更新</button>
+                <button id="closeSettingsBtn">❌ 關閉</button>
+            </div>
+        </div>
+        
+        <h3>記憶組 (Preset) 管理</h3>
+        <div class="preset-actions">
+            <label>載入/切換：</label>
+            <select id="presetSelector"></select>
+            <button id="loadPresetBtn">讀取並覆蓋</button>
+            <button id="deletePresetBtn">刪除選定組</button>
+            
+            <label style="margin-left: 20px;">儲存目前：</label>
+            <input type="text" id="newPresetName" placeholder="輸入新記憶組名稱" style="width: 150px;"/>
+            <button id="savePresetBtn">💾 儲存為新組</button>
+        </div>
+
+        <h3>任務列表設定 (最多 10 組)</h3>
+        <p style="color: red; font-weight: bold;">⚠️ 時間不可重疊，結束時間必須大於開始時間 (跨日除外)！</p>
+        <table id="tasksTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>啟用</th>
+                    <th>任務名稱</th>
+                    <th>Emoji</th>
+                    <th>顏色</th>
+                    <th>開始時間 (小時:分鐘)</th>
+                    <th>結束時間 (小時:分鐘)</th>
+                </tr>
+            </thead>
+            <tbody id="tasksBody">
+                </tbody>
+        </table>
+        
+        <h3 style="margin-top: 20px;">跨裝置同步資訊 (請複製此網址)</h3>
+        <p>請將下方網址複製到您所有裝置，即可同步您的設定：</p>
+        <input type="text" id="syncUrlDisplay" style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 5px;" readonly>
+    </div>
+</div>
+
+<script>
+// --- 雲端同步設定 (請務必確認這兩個參數是您自己的) ---
+// 🚨 401 Unauthorized 錯誤通常發生在 Key 或 Bin ID 不正確時。
+const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsvFd0RuYmxubPyt2bjV5yS'; 
+const BIN_ID = '6923f5dcd0ea881f40fc4e32';
+const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+// --- 核心數據與模式設定 ---
+const LOCAL_STORAGE_CONTROL_KEY = 'controlMode'; 
+const MAX_TASKS = 10;
+const FULL_DAY_MINUTES = 1440; 
+const FULL_DAY_DEGREE = 360 / FULL_DAY_MINUTES; // 0.25 度/分鐘
+const ZOOM_DEGREE = 360 / 60; // 6 度/分鐘
+
+// 模式定義
+const MODE_AUTO = 'ZOOM_FORCED'; 
+const MODE_FORCED_FULL = 'FULLDAY_FORCED'; 
+
+// 預設數據 (雲端載入失敗時使用)
+const DEFAULT_TASKS = [
+    { name: '起床', emoji: '🌞', color: '#ffd6e8', start: 420, end: 510, enabled: true },      
+    { name: '上學', emoji: '🎒', color: '#fdd9c7', start: 510, end: 1020, enabled: true },    
+    { name: '回家', emoji: '🏠', color: '#ffecc7', start: 1020, end: 1140, enabled: true },    
+    { name: '洗澡', emoji: '🛁', color: '#d6eaff', start: 1140, end: 1260, enabled: true },    
+    { name: '睡覺', emoji: '😴', color: '#e5ffd6', start: 1260, end: 420, enabled: true },      
+    { name: '', emoji: '', color: '#e8d6ff', start: 0, end: 0, enabled: false },  
+    { name: '', emoji: '', color: '#ffdfd6', start: 0, end: 0, enabled: false },    
+    { name: '', emoji: '', color: '#ffc7d9', start: 0, end: 0, enabled: false },  
+    { name: '', emoji: '', color: '#c7d9ff', start: 0, end: 0, enabled: false },    
+    { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false }               
+];
+const DEFAULT_PRESET_NAME = '預設作息';
+const DEFAULT_CLOUD_DATA = { 
+    tasks: DEFAULT_TASKS,
+    presets: { [DEFAULT_PRESET_NAME]: DEFAULT_TASKS }
+};
+
+
+let currentTasks = [];
+let presets = {};
+let displayMode = 'FULL_DAY'; 
+let controlMode = MODE_FORCED_FULL; 
+let zoomStartMinutes = 0; 
+let configId = BIN_ID; 
+
+
+// --- 時間處理與工具函式 ---
+
+// 將分鐘數轉換為 HH:MM 字串
+function minutesToHHMM(totalMinutes) {
+    if (totalMinutes === 1440) return '24:00';
+    totalMinutes = totalMinutes % 1440;
+    const hour = Math.floor(totalMinutes / 60);
+    const minute = totalMinutes % 60;
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+}
+
+// 將總分鐘數轉換為小時和分鐘對象
+function minutesToTime(totalMinutes) {
+    if (typeof totalMinutes !== 'number' || isNaN(totalMinutes) || totalMinutes < 0) {
+        totalMinutes = 0; 
+    }
+    
+    // 24:00 處理
+    if (totalMinutes === 1440) return { hour: 24, minute: 0 }; 
+    const hour = Math.floor(totalMinutes / 60) % 24;
+    const minute = totalMinutes % 60;
+    return { hour, minute };
+}
+
+// 動態生成時間選擇器 HTML
+function generateTimeSelectors(dataIndex, fieldPrefix, totalMinutes, isEnd) {
+    if (typeof totalMinutes !== 'number' || isNaN(totalMinutes) || totalMinutes < 0) {
+        totalMinutes = 0; 
+    }
+    let { hour, minute } = minutesToTime(totalMinutes);
+    
+    let hourOptions = '';
+    const maxHour = isEnd ? 24 : 23; 
+    for (let h = 0; h <= maxHour; h++) {
+        hourOptions += `<option value="${h}" ${h === hour ? 'selected' : ''}>${h.toString().padStart(2, '0')}</option>`;
+    }
+
+    let minuteOptions = '';
+    // 只提供 5 分鐘的粒度選擇
+    for (let m = 0; m <= 59; m += 5) { 
+        minuteOptions += `<option value="${m}" ${m === minute ? 'selected' : ''}>${m.toString().padStart(2, '0')}</option>`;
+    }
+    
+    return `<div class="time-select-group">
+        <select data-index="${dataIndex}" data-field="${fieldPrefix}Hour">${hourOptions}</select>
+        <select data-index="${dataIndex}" data-field="${fieldPrefix}Minute">${minuteOptions}</select>
+    </div>`;
+}
+
+
+// --- 數據載入/儲存邏輯 ---
+
+async function loadData() {
+    const savedControl = localStorage.getItem(LOCAL_STORAGE_CONTROL_KEY);
+    controlMode = savedControl || MODE_FORCED_FULL; 
+
+    try {
+        const response = await fetch(JSONBIN_URL, {
+            headers: {
+                'X-Master-Key': X_MASTER_KEY,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Cloud load failed: ${response.status} (${response.statusText})`);
+        }
+        
+        const data = await response.json();
+        const cloudData = data.record; 
+
+        if (cloudData && cloudData.tasks && cloudData.presets) {
+            currentTasks = cloudData.tasks;
+            presets = cloudData.presets;
+            console.log("數據從雲端載入成功。");
+        } else {
+            currentTasks = DEFAULT_TASKS;
+            presets = DEFAULT_CLOUD_DATA.presets;
+            console.log("雲端數據結構錯誤或空白，使用預設值。");
+        }
+        
+    } catch (error) {
+        console.error("載入雲端數據時發生錯誤，使用預設值:", error);
+        currentTasks = DEFAULT_TASKS;
+        presets = DEFAULT_CLOUD_DATA.presets;
+    }
+}
+
+
+async function saveCloudData(tasksToSave, presetsToSave) {
+    const payload = { 
+        tasks: tasksToSave,
+        presets: presetsToSave
+    };
+
+    try {
+        const response = await fetch(JSONBIN_URL, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': X_MASTER_KEY,
+                'X-Bin-Versioning': false 
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Cloud save failed: ${response.status} (${response.statusText})`);
+        }
+        
+        console.log("數據成功同步到雲端。");
+        updateSyncUrlDisplay();
+        return true;
+    } catch (error) {
+        console.error("儲存雲端數據時發生錯誤:", error);
+        alert('❌ 雲端同步失敗！請檢查您的 API Key 和 Bin ID 是否正確。');
+        return false;
+    }
+}
+
+function updateSyncUrlDisplay() {
+    const baseUrl = window.location.href.split('?')[0];
+    document.getElementById('syncUrlDisplay').value = `${baseUrl}?configId=${configId}`;
+}
+
+function updateModeButton() {
+    const btn = document.getElementById('modeToggleButton');
+    if (controlMode === MODE_AUTO) {
+        btn.textContent = '🔍 目前: 小時縮放 (點擊切換 24 小時全景)'; 
+    } else {
+        btn.textContent = '👁️‍🗨️ 目前: 24 小時全景 (點擊切換 小時縮放)';
+    }
+}
+
+function saveControlMode() {
+    localStorage.setItem(LOCAL_STORAGE_CONTROL_KEY, controlMode);
+    updateModeButton();
+}
+
+
+// --- 時鐘渲染邏輯 (修正圓環顏色位置) ---
+const clockElement = document.getElementById('clock');
+const modeIndicator = document.getElementById('mode-indicator');
+const cx = 190; const cy = 190; // 時鐘中心點 (Clock width/height is 380px)
+const R_TASK_LABEL = 85; // 任務標籤半徑
+const R_CLOCK_LABEL = 135; // 數字標籤半徑
+
+function renderClock() {
+    // 每次重新繪製，清除舊的內容
+    clockElement.innerHTML = `<div class="minute-hand" id="minHand"></div><div class="center-dot"></div>`;
+    
+    let conicGradientStops = [];
+    let enabledTasks = currentTasks.filter(t => t.enabled);
+    
+    let degreePerMinute, startMinuteOffset;
+    
+    // --- 1. 設置模式參數 ---
+    if (displayMode === 'FULL_DAY') {
+        degreePerMinute = FULL_DAY_DEGREE;
+        startMinuteOffset = 0;
+        modeIndicator.textContent = '顯示模式：24 小時作息環';
+    } else { // ZOOM Mode
+        degreePerMinute = ZOOM_DEGREE;
+        startMinuteOffset = zoomStartMinutes; 
+        const zoomEndMinutes = zoomStartMinutes + 60;
+        modeIndicator.textContent = `顯示模式：小時縮放 (${minutesToHHMM(zoomStartMinutes)} - ${minutesToHHMM(zoomEndMinutes)})`;
+    }
+
+    // --- 2. 處理任務和角度計算 ---
+    enabledTasks.forEach(task => {
+        let originalStart = task.start;
+        let originalEnd = task.end;
+        let taskDuration = originalEnd - originalStart;
+
+        // 處理跨日任務 (End < Start)
+        if (taskDuration <= 0) {
+            taskDuration += FULL_DAY_MINUTES;
+            originalEnd += FULL_DAY_MINUTES; 
+        }
+        
+        // 任務可能需要被分解成多個區段 (例如跨午夜)
+        let segments = [];
+        let currentSegmentStart = originalStart;
+        
+        while (currentSegmentStart < originalEnd) {
+            let nextBoundary = Math.ceil(currentSegmentStart / FULL_DAY_MINUTES) * FULL_DAY_MINUTES;
+            let segmentEnd = Math.min(originalEnd, nextBoundary);
+            
+            segments.push({
+                start: currentSegmentStart % FULL_DAY_MINUTES,
+                end: segmentEnd % FULL_DAY_MINUTES,
+                originalDuration: segmentEnd - currentSegmentStart,
+                isWrapped: segmentEnd > FULL_DAY_MINUTES 
+            });
+
+            currentSegmentStart = segmentEnd;
+        }
+
+        let largestDuration = 0;
+        let labelMiddleMinutes = 0; 
+
+        // 遍歷所有區段 (通常只有一個，跨日會有兩個)
+        segments.forEach(segment => {
+            let start = segment.start;
+            let end = segment.end;
+            
+            // 處理 24:00 (0) 的情況，在計算中視為 1440
+            if (end === 0 && segment.isWrapped) {
+                end = FULL_DAY_MINUTES; 
+            }
+            
+            let duration = end - start;
+            if (duration <= 0) return; 
+
+            let relativeStartMinutes, relativeEndMinutes;
+
+            if (displayMode === 'FULL_DAY') {
+                relativeStartMinutes = start; 
+                relativeEndMinutes = end;
+                duration = relativeEndMinutes - relativeStartMinutes;
+                
+            } else { // 1H ZOOM 模式
+                const zoomEndMinutes = startMinuteOffset + 60;
+                
+                let clippedStart = Math.max(start, startMinuteOffset);
+                let clippedEnd = Math.min(end, zoomEndMinutes);
+                
+                // 處理跨日任務在當前小時的邊界
+                if (start > end && start > startMinuteOffset) {
+                    clippedStart = startMinuteOffset; 
+                }
+                
+                if (clippedEnd <= clippedStart) return; 
+                
+                relativeStartMinutes = clippedStart - startMinuteOffset; // 轉換到 0-60 區間
+                relativeEndMinutes = clippedEnd - startMinuteOffset;     // 轉換到 0-60 區間
+                duration = relativeEndMinutes - relativeStartMinutes;
+            }
+            
+            // 3. 轉換為角度：讓 00:00 對齊 0 度 (12 點方向)。
+            let startDeg = relativeStartMinutes * degreePerMinute;
+            let stopDeg = startDeg + (duration * degreePerMinute);
+
+            // 確保 conic-gradient 角度是 0 到 360 之間的有效值
+            startDeg = startDeg % 360;
+            if (startDeg < 0) startDeg += 360;
+
+            conicGradientStops.push(`${task.color} ${startDeg}deg ${stopDeg}deg`);
+            
+            
+            // 4. 標籤位置： (計算角度時不需偏移 -90 度)
+            if (duration > largestDuration) {
+                largestDuration = duration;
+                labelMiddleMinutes = relativeStartMinutes + duration / 2;
+            }
+        });
+        
+        // 5. 繪製標籤 
+        if (task.name && task.emoji && largestDuration > 0) { 
+            // 標籤的角度修正：減去 90 度，將圓環座標系統 (0度在頂部) 轉換為標準數學座標 (0度在右側) 
+            let middleAngleDeg = labelMiddleMinutes * degreePerMinute;
+            let middleAngleRad = (middleAngleDeg - 90) * Math.PI / 180;
+            
+            const div = document.createElement('div');
+            div.className = 'task-label';
+            
+            // 標籤顯示優化
+            if (largestDuration < 10 && displayMode === 'ZOOM') {
+                 div.innerHTML = `${task.emoji}`;
+            } else {
+                 div.innerHTML = `${task.emoji}<br>${task.name}`;
+            }
+           
+            div.style.left = `${cx + R_TASK_LABEL * Math.cos(middleAngleRad)}px`;
+            div.style.top = `${cy + R_TASK_LABEL * Math.sin(middleAngleRad)}px`;
+            clockElement.appendChild(div);
+        }
+    });
+
+    // 設置圓環背景
+    clockElement.style.background = `conic-gradient(${conicGradientStops.join(', ')})`;
+    
+    // --- 6. 繪製刻度與數字 ---
+    if (displayMode === 'FULL_DAY') {
+        for (let h = 1; h <= 12; h++) {
+          const num = document.createElement('div');
+          num.className = 'clock-label hour-number';
+          num.textContent = h;
+          // 數字位置：角度需要偏移 90 度 (將時鐘角度轉為數學角度)
+          const angle = (h * 30 - 90) * Math.PI / 180; 
+          num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angle)}px`;
+          num.style.top = `${cy + R_CLOCK_LABEL * Math.sin(angle)}px`;
+          clockElement.appendChild(num);
+        }
+        for (let i = 0; i < 60; i++) {
+            const tick = document.createElement('div');
+            tick.className = 'tick ' + (i % 5 === 0 ? 'major' : 'minor');
+            // 刻度旋轉不需要偏移，它是相對於頂部的 0 度
+            tick.style.transform = `translateX(-50%) rotate(${i * 6}deg)`;
+            clockElement.appendChild(tick);
+        }
+
+    } else { 
+        const hour = Math.floor(zoomStartMinutes / 60);
+        for (let i = 0; i < 60; i += 5) {
+            const isMajor = i % 15 === 0;
+            const labelText = i.toString().padStart(2, '0');
+            const deg = i * 6; 
+            // 數字位置：角度需要偏移 90 度
+            const angleRad = (deg - 90) * Math.PI / 180; 
+            
+            const tick = document.createElement('div');
+            tick.className = 'tick ' + (isMajor ? 'major' : 'minor');
+            tick.style.transform = `translateX(-50%) rotate(${deg}deg)`;
+            clockElement.appendChild(tick);
+            
+            if (isMajor) {
+                const num = document.createElement('div');
+                num.className = 'clock-label zoom-minute-label';
+                // 為了不讓標籤文字太長，只顯示分鐘數
+                num.textContent = `${labelText}`; 
+                num.style.left = `${cx + R_CLOCK_LABEL * Math.cos(angleRad)}px`;
+                num.style.top = `${cy + R_CLOCK_LABEL * Math.sin(angleRad)}px`;
+                clockElement.appendChild(num);
+            }
+        }
+    }
+}
+
+
+// updateTime 核心邏輯 (修正指針角度)
+function updateTime() {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const s = now.getSeconds();
+    
+    // 總分鐘數 (包含秒數)
+    const currentTotalMinutes = (h * 60) + m + (s / 60);
+    const currentHourStart = Math.floor(currentTotalMinutes / 60) * 60; 
+    
+    let newDisplayMode = 'FULL_DAY';
+
+    if (controlMode === MODE_FORCED_FULL) {
+        newDisplayMode = 'FULL_DAY';
+        zoomStartMinutes = 0; 
+    } else { // 強制縮放模式
+        newDisplayMode = 'ZOOM';
+        zoomStartMinutes = currentHourStart; 
+    }
+
+    if (newDisplayMode !== displayMode) {
+        displayMode = newDisplayMode;
+        renderClock();
+    }
+    
+    let rotationDegree = 0;
+    if (displayMode === 'FULL_DAY') {
+        // 24H 模式下：總分鐘數 * 0.25 度/分鐘。
+        // 減去 90 度，讓 00:00 的指針從 12 點鐘方向開始 (CSS 0 度是 3 點鐘方向)。
+        rotationDegree = currentTotalMinutes * FULL_DAY_DEGREE - 90;
+    } else { 
+        // 1H 縮放模式下：當前小時內的分鐘數 * 6 度/分鐘。
+        const minutesInHour = currentTotalMinutes - zoomStartMinutes;
+        rotationDegree = minutesInHour * ZOOM_DEGREE - 90;
+    }
+    
+    document.getElementById('minHand').style.transform = `translateX(-50%) rotate(${rotationDegree}deg)`;
+    
+    document.getElementById('current-time').textContent = 
+        `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    const dateStr = now.toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' });
+    document.getElementById('date-label').textContent = dateStr;
+}
+
+
+// --- 設定介面渲染與互動 ---
+
+const tasksBody = document.getElementById('tasksBody');
+const modal = document.getElementById('settingsModal');
+const presetSelector = document.getElementById('presetSelector');
+
+function renderSettings() {
+    tasksBody.innerHTML = '';
+    for (let i = 0; i < MAX_TASKS; i++) {
+        const task = currentTasks[i] || { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false };
+        // 修正 generateTimeSelectors 函數調用位置錯誤
+        const startTimeSelectors = generateTimeSelectors(i, 'start', task.start, false);
+        const endTimeSelectors = generateTimeSelectors(i, 'end', task.end, true); 
+
+        let row = `<tr>
+            <td>${i + 1}</td>
+            <td><input type="checkbox" data-index="${i}" data-field="enabled" ${task.enabled ? 'checked' : ''}></td>
+            <td><input type="text" data-index="${i}" data-field="name" value="${task.name || ''}" placeholder="例如: 吃早餐"></td>
+            <td><input type="text" data-index="${i}" data-field="emoji" value="${task.emoji || ''}" maxlength="2" style="width: 50px;" placeholder="圖示"></td>
+            <td><input type="color" data-index="${i}" data-field="color" value="${task.color || '#f0f0f0'}"></td>
+            <td>${startTimeSelectors}</td>
+            <td>${endTimeSelectors}</td>
+        </tr>`;
+        tasksBody.innerHTML += row;
+    }
+    renderPresetSelector();
+    updateSyncUrlDisplay(); 
+}
+
+async function applySettings() {
+    const newTasks = [];
+    let isValid = true;
+    
+    tasksBody.querySelectorAll('tr').forEach((row, i) => {
+        const enabled = row.querySelector('[data-field="enabled"]').checked;
+        const name = row.querySelector('[data-field="name"]').value.trim();
+        const emoji = row.querySelector('[data-field="emoji"]').value.trim();
+        const color = row.querySelector('[data-field="color"]').value;
+        
+        const startHourElement = row.querySelector('[data-field="startHour"]');
+        const startMinuteElement = row.querySelector('[data-field="startMinute"]');
+        const endHourElement = row.querySelector('[data-field="endHour"]');
+        const endMinuteElement = row.querySelector('[data-field="endMinute"]');
+        
+        if (!startHourElement || !startMinuteElement || !endHourElement || !endMinuteElement) {
+             console.error(`Missing time selector element on row ${i + 1}`);
+             isValid = false;
+             return;
+        }
+
+        const startHour = parseInt(startHourElement.value, 10);
+        const startMinute = parseInt(startMinuteElement.value, 10);
+        const endHour = parseInt(endHourElement.value, 10);
+        const endMinute = parseInt(endMinuteElement.value, 10);
+        
+        const startMinutes = (startHour * 60) + startMinute;
+        let endMinutes = (endHour * 60) + endMinute;
+
+        if (endHour === 24) {
+            endMinutes = FULL_DAY_MINUTES; 
+        }
+
+        const task = { enabled, name, emoji, color, start: startMinutes, end: endMinutes };
+        
+        if (task.enabled) {
+            if (!task.name) {
+                alert(`第 ${i + 1} 行已啟用，但任務名稱不能為空！`);
+                isValid = false;
+                return;
+            }
+            if (task.start === task.end && (task.start !== 0 && task.end !== FULL_DAY_MINUTES)) {
+                 alert(`第 ${i + 1} 行的時間區間無效 (開始/結束時間相同)！`);
+                 isValid = false;
+                 return;
+            }
+        }
+        newTasks.push(task);
+    });
+
+    if (!isValid) return false; 
+
+    currentTasks = newTasks;
+    
+    // 呼叫雲端儲存
+    const saved = await saveCloudData(currentTasks, presets);
+
+    if (saved) {
+        updateTime(); 
+        modal.style.display = 'none'; 
+        alert('✅ 設定已儲存並同步到雲端！');
+        return true;
+    }
+    return false; 
+}
+
+function renderPresetSelector() {
+    presetSelector.innerHTML = '';
+    const names = Object.keys(presets);
+    if (names.length === 0) {
+        presetSelector.innerHTML = '<option>無記憶組</option>';
+        document.getElementById('loadPresetBtn').disabled = true;
+        document.getElementById('deletePresetBtn').disabled = true;
+        return;
+    }
+    document.getElementById('loadPresetBtn').disabled = false;
+    document.getElementById('deletePresetBtn').disabled = false;
+    
+    names.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        presetSelector.appendChild(option);
+    });
+}
+
+// --- 初始化與事件監聽 ---
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 非同步載入數據
+    await loadData(); 
+    
+    updateModeButton(); 
+    renderClock();
+    
+    function animate() {
+        updateTime();
+        // 確保每秒更新一次時間
+        requestAnimationFrame(animate); 
+    }
+    requestAnimationFrame(animate);
+
+    // 開啟設定 
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+        try {
+            renderSettings();
+            modal.style.display = 'flex';
+        } catch (error) {
+            console.error("開啟設定彈窗時發生錯誤:", error);
+            // 避免彈窗開啟失敗，強行打開並顯示錯誤提示
+            modal.style.display = 'flex'; 
+            alert("⚠️ 開啟設定發生嚴重錯誤，請檢查瀏覽器控制台 (Console)。");
+        }
+    });
+    
+    document.getElementById('closeSettingsBtn').addEventListener('click', () => { modal.style.display = 'none'; });
+    document.getElementById('saveSettingsBtn').addEventListener('click', applySettings);
+
+    // 模式切換 (強制手動切換)
+    document.getElementById('modeToggleButton').addEventListener('click', () => {
+        if (controlMode === MODE_FORCED_FULL) {
+            controlMode = MODE_AUTO; 
+        } else {
+            controlMode = MODE_FORCED_FULL; 
+        }
+        saveControlMode(); 
+        updateTime(); 
+    });
+
+    // 載入記憶組
+    document.getElementById('loadPresetBtn').addEventListener('click', () => {
+        const name = presetSelector.value;
+        if (confirm(`確定要載入「${name}」嗎？目前的設定將會被覆蓋！`)) {
+            currentTasks = JSON.parse(JSON.stringify(presets[name])); 
+            renderSettings();
+            alert('記憶組載入成功！請點擊「儲存並更新」同步到雲端。');
+        }
+    });
+
+    // 儲存記憶組 (需同步到雲端)
+    document.getElementById('savePresetBtn').addEventListener('click', async () => {
+        const nameInput = document.getElementById('newPresetName');
+        const name = nameInput.value.trim();
+        if (!name) { alert('請輸入記憶組名稱！'); return; }
+        if (presets[name] && !confirm(`記憶組「${name}」已存在，確定要覆蓋嗎？`)) { return; }
+        
+        const applied = await applySettings(); 
+        if (!applied) return; 
+        
+        presets[name] = JSON.parse(JSON.stringify(currentTasks)); 
+        const saved = await saveCloudData(currentTasks, presets);
+        
+        if (saved) {
+            renderPresetSelector();
+            nameInput.value = '';
+            alert(`✅ 作息已成功儲存為記憶組「${name}」並同步到雲端！`);
+        }
+    });
+
+    // 刪除記憶組 (需同步到雲端)
+    document.getElementById('deletePresetBtn').addEventListener('click', async () => {
+        const name = presetSelector.value;
+        if (confirm(`確定要刪除記憶組「${name}」嗎？此操作不可復原！`)) {
+            delete presets[name];
+            const saved = await saveCloudData(currentTasks, presets);
+            
+            if (saved) {
+                renderPresetSelector();
+                alert('✅ 記憶組已刪除並同步到雲端。');
+            }
+        }
+    });
+});
+</script>
+
+</body>
+</html>
