@@ -169,9 +169,9 @@
 </div>
 
 <script>
-// --- 雲端同步設定 (請務必確認這兩個參數是您自己的) ---
-// 🚨 401 Unauthorized 錯誤通常發生在 Key 或 Bin ID 不正確時。
-const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsvFd0RuYmxubPyt2bjV5yS'; 
+// --- 雲端同步設定 (已植入您的金鑰和 ID) ---
+// 🚨 如果依然出現 401 錯誤，請檢查 jsonbin.io 該 Bin 的權限設定是否為 Public Read/Write。
+const X_MASTER_KEY = '$2a$10$Ud6ejIFrOHIeYjhVKcVE5.PG9rQKTWbsfFd0RuYmxubPyt2bjV5yS'; 
 const BIN_ID = '6923f5dcd0ea881f40fc4e32';
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
@@ -279,6 +279,7 @@ async function loadData() {
         });
         
         if (!response.ok) {
+            // 雲端載入失敗時，記錄錯誤並拋出，讓程式使用預設值
             throw new Error(`Cloud load failed: ${response.status} (${response.statusText})`);
         }
         
@@ -398,35 +399,53 @@ function renderClock() {
         let segments = [];
         let currentSegmentStart = originalStart;
         
-        while (currentSegmentStart < originalEnd) {
-            let nextBoundary = Math.ceil(currentSegmentStart / FULL_DAY_MINUTES) * FULL_DAY_MINUTES;
-            let segmentEnd = Math.min(originalEnd, nextBoundary);
-            
-            segments.push({
-                start: currentSegmentStart % FULL_DAY_MINUTES,
-                end: segmentEnd % FULL_DAY_MINUTES,
-                originalDuration: segmentEnd - currentSegmentStart,
-                isWrapped: segmentEnd > FULL_DAY_MINUTES 
-            });
-
-            currentSegmentStart = segmentEnd;
+        // 處理起始時間點的調整，確保在 0-1440 區間內
+        let adjustedOriginalEnd = originalEnd;
+        if (originalEnd % FULL_DAY_MINUTES === 0 && originalEnd > 0) {
+             adjustedOriginalEnd = FULL_DAY_MINUTES;
         }
+
+        // 檢查任務是否跨日，並切割成兩個 0-1440 區間的片段
+        if (task.start >= task.end) {
+            // 片段 1: 從 start 到 24:00 (1440)
+            segments.push({
+                start: originalStart,
+                end: FULL_DAY_MINUTES,
+                isWrapped: true 
+            });
+            // 片段 2: 從 00:00 (0) 到 end
+            segments.push({
+                start: 0,
+                end: task.end === 0 ? FULL_DAY_MINUTES : task.end,
+                isWrapped: true 
+            });
+        } else {
+            segments.push({
+                start: originalStart,
+                end: originalEnd,
+                isWrapped: false
+            });
+        }
+
 
         let largestDuration = 0;
         let labelMiddleMinutes = 0; 
 
-        // 遍歷所有區段 (通常只有一個，跨日會有兩個)
+        // 遍歷所有區段
         segments.forEach(segment => {
-            let start = segment.start;
-            let end = segment.end;
+            let start = segment.start % FULL_DAY_MINUTES;
+            let end = segment.end % FULL_DAY_MINUTES;
             
-            // 處理 24:00 (0) 的情況，在計算中視為 1440
-            if (end === 0 && segment.isWrapped) {
+            // 處理 24:00 (0) 的情況
+            if (segment.end === FULL_DAY_MINUTES) {
                 end = FULL_DAY_MINUTES; 
             }
             
             let duration = end - start;
-            if (duration <= 0) return; 
+            if (duration <= 0) {
+                 // 忽略無效區段，除非它是 24:00 
+                 if (!(start === 0 && end === 0)) return; 
+            }
 
             let relativeStartMinutes, relativeEndMinutes;
 
@@ -465,16 +484,61 @@ function renderClock() {
             
             
             // 4. 標籤位置： (計算角度時不需偏移 -90 度)
-            if (duration > largestDuration) {
-                largestDuration = duration;
-                labelMiddleMinutes = relativeStartMinutes + duration / 2;
+            // 這裡使用原始的 start/end 來定位最大的區段，因為 relativeStartMinutes/duration 是片段
+            let labelDuration = segment.end - segment.start;
+            if (labelDuration <= 0) {
+                 labelDuration += FULL_DAY_MINUTES; 
+            }
+
+            if (labelDuration > largestDuration) {
+                largestDuration = labelDuration;
+                // 修正標籤位置的計算，使用相對於 00:00 的分鐘數
+                let middleMinutes = ((segment.start + segment.end) / 2) % FULL_DAY_MINUTES;
+                if (segment.start >= segment.end) {
+                    middleMinutes = (segment.start + (segment.end + FULL_DAY_MINUTES)) / 2;
+                }
+                
+                if (displayMode === 'ZOOM') {
+                     // 在縮放模式下，需要計算中間點相對於 zoomStartMinutes 的分鐘數
+                     middleMinutes = (startMinuteOffset + 60) / 2;
+                }
+
+                labelMiddleMinutes = (segment.start + segment.end) / 2;
+                if (segment.start >= segment.end) {
+                    labelMiddleMinutes = (segment.start + (segment.end + FULL_DAY_MINUTES)) / 2;
+                }
+                labelMiddleMinutes = labelMiddleMinutes % FULL_DAY_MINUTES;
+
+                // 轉換到當前模式的相對分鐘數
+                if (displayMode === 'ZOOM') {
+                    // 檢查 labelMiddleMinutes 是否在縮放區間內
+                    const zoomEndMinutes = startMinuteOffset + 60;
+                    if (labelMiddleMinutes >= startMinuteOffset && labelMiddleMinutes <= zoomEndMinutes) {
+                        labelMiddleMinutes = (start + duration / 2);
+                    } else {
+                        // 如果標籤點不在當前縮放區間，我們不渲染它 (或者選擇中間點)
+                        labelMiddleMinutes = relativeStartMinutes + duration / 2;
+                    }
+                } else {
+                     // 確保標籤角度是基於 0-1440 區間
+                     labelMiddleMinutes = (segment.start + (segment.end === 0 ? FULL_DAY_MINUTES : segment.end)) / 2;
+                     labelMiddleMinutes = labelMiddleMinutes % FULL_DAY_MINUTES;
+                }
             }
         });
         
         // 5. 繪製標籤 
         if (task.name && task.emoji && largestDuration > 0) { 
             // 標籤的角度修正：減去 90 度，將圓環座標系統 (0度在頂部) 轉換為標準數學座標 (0度在右側) 
-            let middleAngleDeg = labelMiddleMinutes * degreePerMinute;
+            let middleAngleDeg;
+
+            if (displayMode === 'FULL_DAY') {
+                 middleAngleDeg = labelMiddleMinutes * FULL_DAY_DEGREE;
+            } else {
+                 const relativeZoomMinutes = (labelMiddleMinutes - zoomStartMinutes + FULL_DAY_MINUTES) % FULL_DAY_MINUTES;
+                 middleAngleDeg = relativeZoomMinutes * ZOOM_DEGREE;
+            }
+            
             let middleAngleRad = (middleAngleDeg - 90) * Math.PI / 180;
             
             const div = document.createElement('div');
@@ -600,7 +664,7 @@ function renderSettings() {
     tasksBody.innerHTML = '';
     for (let i = 0; i < MAX_TASKS; i++) {
         const task = currentTasks[i] || { name: '', emoji: '', color: '#f0f0f0', start: 0, end: 0, enabled: false };
-        // 修正 generateTimeSelectors 函數調用位置錯誤
+        // 確保 generateTimeSelectors 函數在此處被正確調用
         const startTimeSelectors = generateTimeSelectors(i, 'start', task.start, false);
         const endTimeSelectors = generateTimeSelectors(i, 'end', task.end, true); 
 
@@ -660,10 +724,19 @@ async function applySettings() {
                 isValid = false;
                 return;
             }
-            if (task.start === task.end && (task.start !== 0 && task.end !== FULL_DAY_MINUTES)) {
-                 alert(`第 ${i + 1} 行的時間區間無效 (開始/結束時間相同)！`);
-                 isValid = false;
-                 return;
+             // 檢查結束時間是否小於或等於開始時間，除非是跨日（Start > End）或 24:00 (End = 1440)
+            if (task.start >= task.end && task.end !== FULL_DAY_MINUTES) {
+                 // 允許 Start: 23:00, End: 07:00 (跨日)
+                 // 允許 Start: 07:00, End: 24:00
+                 // 不允許 Start: 07:00, End: 07:00 (除非 Start = End = 1440/0)
+                 if (task.start !== task.end) {
+                      // 這是跨日任務，需要檢查是否有衝突
+                      // 暫時放行跨日任務，讓使用者自行檢查衝突
+                 } else {
+                     alert(`第 ${i + 1} 行的時間區間無效 (開始/結束時間相同)！`);
+                     isValid = false;
+                     return;
+                 }
             }
         }
         newTasks.push(task);
@@ -765,9 +838,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!name) { alert('請輸入記憶組名稱！'); return; }
         if (presets[name] && !confirm(`記憶組「${name}」已存在，確定要覆蓋嗎？`)) { return; }
         
+        // 先應用當前設定，並嘗試同步
         const applied = await applySettings(); 
         if (!applied) return; 
         
+        // 成功同步後，將當前任務列表存入 Preset
         presets[name] = JSON.parse(JSON.stringify(currentTasks)); 
         const saved = await saveCloudData(currentTasks, presets);
         
